@@ -250,9 +250,9 @@ Safari 没有对应的启动参数，最接近的做法是「文件 → 新建�
 
 ---
 
-## 发布信息（上传仓库时用）
+## 发布信息
 
-**仓库名**：`mirror-room`
+**仓库**：<https://github.com/abc1317679842-ui/mirror-room>
 
 **License**：MIT，见 [`LICENSE`](LICENSE)。版权行写的是 `Mirror Room contributors`，想署自己的 GitHub ID 直接改那一行。
 
@@ -262,21 +262,19 @@ Safari 没有对应的启动参数，最接近的做法是「文件 → 新建�
 **About（English，≤160 chars）**：
 > Single-file, zero-dependency 2D mirror billiard lab: 10 rooms, real-time dark-region masks, Poincaré phase space. A measurable take on Penrose's 1958 unilluminable room.
 
-**Topics**（中英关键词都放，GitHub 只认英文，中文留给搜索引擎和介绍文案）：
-`billiards` `dynamical-systems` `chaos` `phase-space` `penrose` `unilluminable-room` `raytracing` `mathematical-visualization` `canvas` `webworker` `offscreencanvas` `single-file`
+**Topics**（GitHub 只认英文；中文词留给搜索引擎和介绍文案）：
+`billiards` `dynamical-systems` `chaos` `ergodic-theory` `penrose` `illumination-problem` `unilluminable-room` `poincare-section` `phase-space` `caustics` `raytracing` `mathematical-visualization` `canvas` `single-file` `no-dependencies` `bilingual` `chinese` `webgl-free`
 → 对应的中文搜索词：镜面台球 / 数学台球 / 彭罗斯房间 / 不可照亮的房间 / 动力系统 / 相空间 / 混沌 / 焦散 / 光线追踪
 
-**License 建议**：MIT（最简单，允许别人改和商用，只保留版权声明）
-
-**首屏图**：`screenshots/` 下三张——`01-initial.png`（刚打开，什么都没跑）、`02-running.png`（960 道 / 2 万次拉满，默认速度跑起来几秒后）、`03-finished.png`（跑到头定格）。都用 1600×1000 截取。
-
-**建议的仓库结构**：
+仓库结构（就是现在这样）：
 
 ```
 mirror-room/
-├── penrose-room.html              ← 主文件
+├── penrose-room.html              ← 主文件，全部内容在这一个里
 ├── 打开镜室-干净浏览器.cmd         ← Windows 启动器（必须和 html 同目录）
-├── README.md                      ← 中文
+├── README.md                      ← 中文说明
 ├── README.en.md                   ← English
-└── docs/简介.md                    ← 可选，几种长度的介绍文案
+├── 简介.md                        ← 几种长度的介绍文案（中英都有）
+├── LICENSE                        ← MIT
+└── screenshots/                   ← 01 初始 / 02 运行中 / 03 完成 / 04-05 英文界面
 ```

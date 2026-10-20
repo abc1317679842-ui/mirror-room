@@ -227,6 +227,10 @@ open -na "Google Chrome" --args \
 
 ---
 
+## Repository
+
+<https://github.com/abc1317679842-ui/mirror-room>
+
 ## License
 
 MIT — see [`LICENSE`](LICENSE). The copyright line reads `Mirror Room contributors`; change it to your own handle if you prefer.
