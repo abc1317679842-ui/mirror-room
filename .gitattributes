@@ -1,0 +1,3 @@
+# 保持仓库内统一 LF；Windows 批处理必须 CRLF，否则 cmd 解析 label 会出错
+* text=auto eol=lf
+*.cmd text eol=crlf

@@ -1,0 +1,5051 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>镜室 · 光线与台球动力学</title>
+<style>
+  :root{
+    --bg:#19222f;
+    --panel:rgba(30,39,53,.97);
+    --line:rgba(255,255,255,.13);
+    --line2:rgba(255,255,255,.22);
+    /* 文字灰度只留三档。原来有十来种灰，每块字都不一样重，
+       在近黑底上眼睛一直在重新对焦，看着累。
+       主 #eef3fa / 次 #b9c5d6 / 弱 #8e9aad，最弱那档也有 4.6:1。 */
+    --fg:#f5f8fd;
+    --dim:#ced9e8;
+    --dim2:#a6b3c6;
+    --dim3:#93a1b6;
+    --accent:#ffc98a;
+    --accent-dim:rgba(255,201,138,.12);
+    --teal:#54e0ce;
+  }
+  *{box-sizing:border-box}
+  html,body{height:100%;margin:0}
+  body{
+    background:var(--bg);color:var(--fg);
+    font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","PingFang SC","Hiragino Sans GB","Microsoft YaHei",sans-serif;
+    -webkit-font-smoothing:antialiased;overflow:hidden;
+  }
+  #app{display:grid;grid-template-columns:92px 1fr 306px;height:100vh}
+
+  #rail{
+    border-right:1px solid var(--line);display:flex;flex-direction:column;
+    padding:14px 0 10px;overflow-y:auto;scrollbar-width:none;background:#1d2735;
+  }
+  #rail::-webkit-scrollbar{display:none}
+  .rail-head{
+    font-size:10.5px;letter-spacing:.14em;color:var(--dim2);text-align:center;
+    margin:0 0 10px;text-transform:uppercase;flex:none;
+  }
+  .sc{
+    display:flex;flex-direction:column;align-items:center;gap:5px;
+    padding:8px 4px 7px;margin:0 8px 2px;border-radius:9px;cursor:pointer;
+    border:1px solid transparent;background:none;color:var(--dim2);
+    font:inherit;transition:.15s;flex:none;
+  }
+  .sc:hover{background:rgba(255,255,255,.06);color:var(--fg)}
+  .sc.on{background:var(--accent-dim);border-color:rgba(255,201,138,.3);color:var(--accent)}
+  .sc svg{width:31px;height:31px;display:block}
+  .sc span{font-size:10.5px;letter-spacing:.02em;line-height:1.1;white-space:nowrap}
+  .sc canvas{width:30px;height:30px;display:block}
+  .rail-sep{height:1px;background:var(--line);margin:8px 14px;flex:none}
+
+  #stage{position:relative;overflow:hidden}
+  #c{display:block;position:absolute;inset:0}
+
+  #title{position:absolute;left:24px;top:20px;pointer-events:none;user-select:none;max-width:392px}
+  #title h1{margin:0;font-size:15px;font-weight:600;letter-spacing:.02em;color:var(--fg)}
+  #title p{margin:5px 0 0;font-size:12px;color:var(--dim);line-height:1.65}
+
+  #hud{
+    position:absolute;left:24px;bottom:16px;font-size:13.5px;color:var(--dim);
+    font-variant-numeric:tabular-nums;pointer-events:auto;line-height:1.66;
+    text-shadow:0 1px 6px rgba(0,0,0,.55);
+  }
+  #hud .k{color:var(--dim2)}
+  #hud .v{color:var(--fg)}
+
+  #panel{
+    border-left:1px solid var(--line);background:var(--panel);
+    backdrop-filter:blur(24px) saturate(140%);-webkit-backdrop-filter:blur(24px) saturate(140%);
+    padding:15px 15px 14px;overflow-y:auto;scrollbar-width:thin;
+  }
+  #panel::-webkit-scrollbar{width:6px}
+  #panel::-webkit-scrollbar-thumb{background:rgba(255,255,255,.18);border-radius:3px}
+  .hd{display:flex;align-items:baseline;justify-content:space-between;margin-bottom:6px}
+  .hd b{font-size:13.5px;font-weight:600;color:var(--fg)}
+  .hd span{font-size:10.5px;color:var(--dim2);letter-spacing:.06em}
+  .sub{margin:0 0 14px;font-size:11.5px;color:var(--dim);line-height:1.7}
+
+  .sec{margin-bottom:12px}
+  /* 紧凑版：省掉左右端标签行，给下面的开关留出高度 */
+  .sec.tight{margin-bottom:9px}
+  .sec.tight .spd-ax{display:none}
+  .lab{display:flex;justify-content:space-between;align-items:baseline;font-size:10.5px;
+       letter-spacing:.09em;color:var(--dim2);margin-bottom:7px}
+  .lab i{font-style:normal;color:var(--fg);letter-spacing:0;font-size:11.5px;font-variant-numeric:tabular-nums}
+
+  input[type=range]{
+    -webkit-appearance:none;appearance:none;width:100%;height:16px;background:none;cursor:pointer;display:block;
+  }
+  input[type=range]::-webkit-slider-runnable-track{height:3px;border-radius:3px;background:rgba(255,255,255,.20)}
+  input[type=range]::-webkit-slider-thumb{
+    -webkit-appearance:none;width:11px;height:11px;margin-top:-4.5px;border-radius:50%;
+    background:#ffd7a4;box-shadow:0 0 0 3px rgba(255,201,138,.14);border:0;
+  }
+  input[type=range]::-moz-range-track{height:3px;border-radius:3px;background:rgba(255,255,255,.20)}
+  input[type=range]::-moz-range-thumb{width:11px;height:11px;border:0;border-radius:50%;background:#ffd7a4}
+
+  .spd{display:flex;align-items:baseline;gap:5px;margin:1px 0 2px}
+  .spd b{font-size:23px;font-weight:500;color:var(--fg);letter-spacing:-.01em;font-variant-numeric:tabular-nums}
+  .spd span{font-size:11.5px;color:var(--dim)}
+  .spd-ax{display:flex;justify-content:space-between;font-size:10.5px;color:var(--dim2);margin-top:3px}
+  .spd-info{display:flex;justify-content:space-between;gap:8px;font-size:11px;color:var(--dim);
+    margin-top:6px;font-variant-numeric:tabular-nums}
+  #v-slowrow{color:#c4a882}
+
+  .seg{display:flex;gap:3px}
+  .seg button{
+    flex:1;padding:7px 0;font:inherit;font-size:12px;color:var(--dim);
+    background:rgba(255,255,255,.06);border:1px solid transparent;border-radius:7px;cursor:pointer;transition:.14s;
+  }
+  .seg button:hover{background:rgba(255,255,255,.08);color:var(--fg)}
+  .seg button.on{background:var(--accent-dim);border-color:rgba(255,201,138,.32);color:#ffd7a4}
+
+  .divider{height:1px;background:var(--line);margin:13px 0}
+
+  .tg{display:flex;align-items:center;justify-content:space-between;cursor:pointer;font-size:12px;color:var(--dim);padding:3px 0}
+  .tg:hover{color:var(--fg)}
+  .toggles .tg{margin-bottom:3px}
+  .sw{width:29px;height:16px;border-radius:8px;background:rgba(255,255,255,.16);position:relative;transition:.18s;flex:none}
+  .sw::after{content:"";position:absolute;top:2px;left:2px;width:12px;height:12px;border-radius:50%;background:#a8b4c6;transition:.18s}
+  .tg.on .sw{background:rgba(255,201,138,.28)}
+  .tg.on .sw::after{left:15px;background:#ffd7a4}
+  .note{margin:4px 0 9px;font-size:11px;line-height:1.6;color:var(--dim)}
+
+  .acts{display:flex;gap:6px}
+  .acts button{
+    flex:1;padding:9px 0;font:inherit;font-size:12px;color:var(--fg);
+    background:rgba(255,255,255,.07);border:1px solid var(--line);border-radius:8px;cursor:pointer;transition:.14s;
+  }
+  .acts button:hover{background:rgba(255,255,255,.09);color:var(--fg)}
+  .acts button.primary{
+    flex:1.35;background:var(--accent-dim);border-color:rgba(255,201,138,.3);color:#ffd7a4;
+  }
+  .acts button.primary:hover{background:rgba(255,201,138,.2)}
+  .acts button:disabled{opacity:.4;cursor:default}
+
+  #startHint{
+    position:absolute;left:50%;top:63%;transform:translate(-50%,-50%);
+    display:flex;flex-direction:column;align-items:center;gap:6px;
+    padding:15px 28px;border-radius:14px;cursor:pointer;
+    background:rgba(20,26,36,.92);backdrop-filter:blur(14px);-webkit-backdrop-filter:blur(14px);
+    border:1px solid rgba(255,201,138,.26);
+    box-shadow:0 12px 40px rgba(0,0,0,.45);
+    transition:opacity .28s,transform .28s;
+  }
+  #startHint:hover{border-color:rgba(255,201,138,.5);background:rgba(16,21,29,.9)}
+  #startHint b{font-size:13.5px;font-weight:600;color:#ffd7a4;letter-spacing:.02em}
+  #startHint span{font-size:11.5px;color:var(--dim)}
+  #startHint.hide{opacity:0;transform:translate(-50%,-46%);pointer-events:none}
+
+  #obsPick button{font-size:15px;line-height:1;padding:7px 0;color:var(--dim)}
+  #obsPick button.on{color:#ffd7a4}
+
+  #cbar{
+    position:absolute;left:50%;top:14px;transform:translateX(-50%);
+    display:none;align-items:center;gap:8px;pointer-events:none;
+    background:rgba(20,26,36,.93);backdrop-filter:blur(16px);-webkit-backdrop-filter:blur(16px);
+    border:1px solid var(--line);border-radius:10px;padding:5px 6px 5px 11px;
+  }
+  #cbar.show{display:flex}
+  #cbar span{font-size:11px;color:var(--dim);white-space:nowrap}
+  #cbar button{
+    pointer-events:auto;font:inherit;font-size:11px;color:var(--dim);
+    background:rgba(255,255,255,.08);border:1px solid var(--line);border-radius:7px;
+    padding:4px 9px;cursor:pointer;transition:.14s;white-space:nowrap;
+  }
+  #cbar button:hover{background:rgba(255,255,255,.11);color:var(--fg)}
+  #cbar button.on{background:var(--accent-dim);border-color:rgba(255,201,138,.3);color:#ffd7a4}
+
+  #phase{
+    position:absolute;right:14px;bottom:14px;width:278px;
+    background:rgba(18,24,34,.93);backdrop-filter:blur(18px);-webkit-backdrop-filter:blur(18px);
+    border:1px solid var(--line);border-radius:13px;padding:10px 11px 9px;
+    transition:opacity .2s,transform .2s;
+    /* 这张卡压在房间内部，以前 pointer-events:none 让点击穿透到画布，
+       点卡片等于点背景，光源就跟着跑了。卡上本来就有按钮，直接拦住。 */
+    pointer-events:auto;
+  }
+  #phase.hide{opacity:0;transform:translateY(8px);pointer-events:none}
+  .ph-hd{display:flex;justify-content:space-between;align-items:baseline;margin-bottom:7px}
+  .ph-hd b{font-size:12px;font-weight:600;color:var(--fg);letter-spacing:.02em}
+  .ph-hd span{font-size:10.5px;color:var(--dim2)}
+  #phCanvas{display:block;width:100%;height:92px;border-radius:6px;background:rgba(255,255,255,.04)}
+  .ph-ax{margin-top:5px;font-size:10px;color:var(--dim2);letter-spacing:.01em;line-height:1.45}
+  .ph-legend{display:flex;gap:6px;margin-top:7px}
+  .ph-legend div{
+    flex:1;text-align:center;font-size:10px;color:var(--dim2);padding:4px 0 3px;
+    border-radius:5px;border:1px solid transparent;line-height:1.25;
+    cursor:pointer;user-select:none;-webkit-user-select:none;
+    transition:color .15s,background .15s,border-color .15s;
+  }
+  .ph-legend div:hover{color:var(--fg);background:rgba(255,255,255,.055);border-color:rgba(255,255,255,.12)}
+  .ph-legend div:active{transform:scale(.97)}
+  .ph-legend div:focus-visible{outline:1px solid var(--accent);outline-offset:1px}
+  /* .on = 本场景真实所属的那一类（常亮）；.sel = 你正在看释义的那一类 */
+  .ph-legend div.on{color:var(--accent);background:var(--accent-dim);border-color:rgba(255,201,138,.26)}
+  .ph-legend div.sel{color:var(--fg);border-color:rgba(255,255,255,.34);background:rgba(255,255,255,.07)}
+  .ph-legend div.on.sel{color:var(--accent);border-color:rgba(255,201,138,.55)}
+  /* min-height 不是为了留白：卡片贴的是 bottom，内容一变高，整张卡就往上长，
+     三个标签跟着上移。点完「一条线」再点同一位置就点空了——看着像点不了。
+     把文字区钉在最高一档，卡片高度恒定，标签才不动。 */
+  #phVerdict{margin-top:8px;font-size:11px;line-height:1.62;color:var(--dim);min-height:126px}
+  #phVerdict b{color:var(--fg);font-weight:600}
+
+  @media (max-width:1180px){
+    #app{grid-template-columns:80px 1fr 268px}
+    #phase{width:250px}
+    .ph-ax{display:none}
+    #phVerdict{font-size:11px;line-height:1.55;min-height:120px}
+  }
+
+  /* 矮窗口：整个面板一起抽紧，别让「参数」标题被顶出视野。
+     1100x700 那种尺寸下原来连标题都看不见，得先滚一下才能读。 */
+  @media (max-height:820px){
+    #panel{padding:12px 13px 12px}
+    .sub{margin-bottom:10px;font-size:11px}
+    .sec{margin-bottom:9px}
+    .divider{margin:10px 0}
+    .hd b{font-size:13px}
+    .spd b{font-size:21px}
+    .spd-info{margin-top:4px;font-size:10.5px}
+    .tg{padding:2px 0;font-size:11.5px}
+    .acts button{padding:8px 0;font-size:11.5px}
+    #rail{padding:10px 0 8px}
+    .sc{padding:6px 4px 5px;gap:4px}
+    .sc svg{width:27px;height:27px}
+    .rail-head{margin-bottom:7px;font-size:10px}
+  }
+
+  /* 更矮：相图卡收成一条，优先把中间的房间留住。 */
+  @media (max-height:700px){
+    #phase{width:224px;padding:8px 9px 7px}
+    #phCanvas{height:68px}
+    .ph-legend,.ph-ax{display:none}
+    #phVerdict{margin-top:6px;font-size:10.5px;line-height:1.5;min-height:112px}
+    #hud{font-size:12px;line-height:1.5}
+    #title p{font-size:11px}
+  }
+  .lang-sw{display:flex;gap:3px;padding:0 2px}
+  .lang-sw button{flex:1;padding:5px 0;font-size:10.5px;letter-spacing:.04em;
+    font-family:inherit;color:var(--dim);background:rgba(255,255,255,.03);
+    border:1px solid var(--line);border-radius:5px;cursor:pointer}
+  .lang-sw button:hover{color:var(--fg);background:rgba(255,255,255,.07)}
+  .lang-sw button.on{color:var(--accent);background:var(--accent-dim);
+    border-color:rgba(255,201,138,.3)}
+</style>
+</head>
+<body>
+<div id="app">
+
+  <aside id="rail">
+    <div class="rail-head" data-i18n="ui.shapes">形状</div>
+    <div id="sceneList"></div>
+    <div class="rail-sep"></div>
+    <button class="sc" id="scCustom">
+      <svg viewBox="0 0 32 32" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round">
+        <path d="M6 20 L14 7 L26 12 L24 25 L9 26 Z"/>
+        <circle cx="14" cy="7" r="2" fill="currentColor" stroke="none"/>
+        <circle cx="26" cy="12" r="2" fill="currentColor" stroke="none"/>
+        <circle cx="24" cy="25" r="2" fill="currentColor" stroke="none"/>
+        <circle cx="6" cy="20" r="2" fill="currentColor" stroke="none"/>
+      </svg>
+      <span data-i18n="ui.custom">自定义</span>
+    </button>
+    <div class="rail-sep"></div>
+    <div class="lang-sw" id="langSw">
+      <button data-l="zh" class="on">中</button>
+      <button data-l="en">EN</button>
+    </div>
+  </aside>
+
+  <main id="stage">
+    <canvas id="c"></canvas>
+    <div id="title">
+      <h1 id="tName">彭罗斯房间</h1>
+      <p id="tDesc">镜面墙壁没有漫反射。无论点光源放在哪，总有区域永远照不亮。</p>
+    </div>
+    <div id="hud">
+      <div><span class="k" data-i18n="hud.rays">光线</span> <span class="v" id="h-rays">60</span> &nbsp;<span class="k" data-i18n="hud.bounce">反射</span> <span class="v" id="h-bounce">0</span> / <span class="v" id="h-max">200</span></div>
+      <div><span class="k" data-i18n="hud.dist">路程</span> <span class="v" id="h-dist">0.0000</span> / <span class="v" id="h-total">0.0000</span> <span class="k" data-i18n="hud.km">km</span> &nbsp;<span class="k" data-i18n="hud.prog">进度</span> <span class="v" id="h-prog">0%</span></div>
+      <div><span class="k" data-i18n="hud.dark">暗区</span> <span class="v" id="h-dark">—</span> &nbsp;<span class="k" data-i18n="hud.lit">照亮</span> <span class="v" id="h-lit">—</span></div>
+      <div><span class="k" data-i18n="hud.speed">速度</span> <span class="v" id="h-speed">—</span> &nbsp;<span class="k" data-i18n="hud.bps">反弹</span> <span class="v" id="h-bps">—</span></div>
+      <div><span class="k" data-i18n="hud.fps">帧</span> <span class="v" id="h-fps">—</span></div>
+    </div>
+
+    <div id="cbar">
+      <span data-i18n="cbar.hint">拖动顶点改外框 · 点边上青点加顶点 · 双击顶点删除</span>
+      <button id="cb-edit" class="on" data-i18n="cbar.editing">编辑中</button>
+      <button id="cb-reset" data-i18n="ui.reset">重置</button>
+    </div>
+
+    <div id="startHint"><b data-i18n="hint.title">光还没有出发</b><span data-i18n="hint.body">点这里，或点右侧「开始」</span></div>
+
+    <div id="phase">
+      <div class="ph-hd"><b data-i18n="ui.phase">相图</b><span id="phStat" data-i18n="ph.sampling">采样中</span></div>
+      <canvas id="phCanvas"></canvas>
+      <div class="ph-ax" data-i18n-h="ph.ax">s 撞墙位置 · p 入射角余弦（1 正面撞，0 擦着走）<br>点下面三个标签看释义，再点一次返回</div>
+      <div class="ph-legend">
+        <div id="lg-line" role="button" tabindex="0" data-i18n="ph.line" data-i18n-t="ph.lineTip" title="点一下看「一条线」是什么意思">一条线</div>
+        <div id="lg-band" role="button" tabindex="0" data-i18n="ph.band" data-i18n-t="ph.bandTip" title="点一下看「分层带」是什么意思">分层带</div>
+        <div id="lg-fill" role="button" tabindex="0" data-i18n="ph.fill" data-i18n-t="ph.fillTip" title="点一下看「弥散」是什么意思">弥散</div>
+      </div>
+      <div id="phVerdict" data-i18n="ph.wait">撞墙点还没攒够，先不下结论。</div>
+    </div>
+  </main>
+
+  <aside id="panel">
+    <div class="hd"><b data-i18n="ui.params">参数</b><span id="pTag">PENROSE 1958</span></div>
+    <p class="sub" id="pNote"></p>
+
+    <div class="sec">
+      <div class="lab"><span data-i18n="ui.rays">光线数</span> <i id="v-rays">60 道</i></div>
+      <input type="range" id="r-rays" min="12" max="960" step="1" value="60">
+      <div class="spd-ax"><span data-i18n="rays.min">12 道</span><span id="v-rays-cap" data-i18n="rays.max">最多 960 道</span></div>
+    </div>
+
+    <div class="sec">
+      <div class="lab" data-i18n="ui.bounceCap">反射次数上限</div>
+      <div class="seg" id="seg-bounce">
+        <button data-v="200" class="on">200</button>
+        <button data-v="1000">1k</button>
+        <button data-v="5000">5k</button>
+        <button data-v="20000" data-i18n="ui.b20k">2万</button>
+      </div>
+      <div class="spd-info" id="b-note" style="display:none"></div>
+    </div>
+
+    <div class="sec">
+      <div class="lab"><span data-i18n="ui.thread">计算线程</span> <i id="v-thread">自动</i></div>
+      <div class="seg" id="seg-thread">
+        <button data-m="auto" class="on" data-i18n="ui.auto">自动</button>
+        <button data-m="manual" data-i18n="ui.manual">手动</button>
+        <button data-m="single" data-i18n="ui.single">单线程</button>
+      </div>
+      <div id="thread-manual" style="display:none">
+        <input type="range" id="r-thread" min="1" max="12" step="1" value="8">
+        <div class="spd-ax"><span data-i18n="th.min">1 条</span><span id="v-thread-cap">12 条</span></div>
+      </div>
+      <p class="note" data-i18n="note.thread">追踪用 Worker 并行，快核多领慢核少领；播放逐帧描线只在主线程，只吃一个核。</p>
+      <div class="spd-info" id="t-note"></div>
+    </div>
+
+    <div class="sec">
+      <div class="lab" data-i18n="ui.render">渲染方式</div>
+      <div class="seg" id="seg-render">
+        <button data-m="worker" class="on">Worker</button>
+        <button data-m="main" data-i18n="ui.main">主线程</button>
+      </div>
+      <p class="note" data-i18n-h="note.render">Worker = 描线放后台线程；主线程 = 全部在页面线程画。
+         <b>开着硬件加速时若出现周期性卡顿</b>，多半是跨线程搬画布撞上显卡驱动的慢路径 —— 切「主线程」即可，切完自动刷新。</p>
+    </div>
+
+    <div class="sec">
+      <div class="lab"><span data-i18n="ui.speed">传播速度</span> <i id="v-speed-c"></i></div>
+      <div class="spd"><b id="v-speed">1</b><span id="v-speed-u">cm/s</span></div>
+      <input type="range" id="r-speed" min="-7000" max="5477" step="1" value="-5000">
+      <div class="spd-ax"><span data-i18n="spd.min">0.1 mm/s</span><span data-i18n="spd.max">光速 c</span></div>
+      <div class="spd-info"><span id="v-run" data-i18n="spd.run0">总路程 —</span><span id="v-time" data-i18n="spd.time0">全程 —</span></div>
+      <div class="spd-info"><span id="v-px"></span></div>
+      <div class="spd-info" id="v-slowrow" style="display:none"><span id="v-slow"></span></div>
+    </div>
+
+    <div class="sec tight">
+      <div class="lab"><span data-i18n="ui.bright">拖尾亮度</span> <i id="v-bright">4.0×</i></div>
+      <input type="range" id="r-bright" min="40" max="760" step="2" value="400">
+      <div class="spd-ax"><span>0.4×</span><span>7.6×</span></div>
+    </div>
+
+    <div class="sec tight">
+      <div class="lab"><span data-i18n="ui.tail">痕迹长度</span> <i id="v-tail">0.90</i></div>
+      <input type="range" id="r-tail" min="0" max="1000" step="1" value="500">
+      <div class="spd-ax"><span>0.02</span><span>0.99</span></div>
+    </div>
+
+    <div class="divider"></div>
+
+    <div class="sec">
+      <div class="lab"><span data-i18n="ui.obstacles">障碍物</span> <i id="v-obs">0 个</i></div>
+      <div class="seg" id="obsPick">
+        <button data-t="circle" data-i18n-t="obs.circle" title="圆">◯</button>
+        <button data-t="tri" data-i18n-t="obs.tri" title="三角">△</button>
+        <button data-t="star" data-i18n-t="obs.star" title="五角星">☆</button>
+        <button data-t="rect" data-i18n-t="obs.rect" title="矩形">▭</button>
+        <button data-t="ell" data-i18n-t="obs.ell" title="椭圆">⬭</button>
+      </div>
+      <p class="note" id="obsHint" data-i18n="note.obs">点一个形状，再到画面里点一下放置。拖动可移动，滚轮缩放，Delete 删除。</p>
+    </div>
+
+    <div class="divider"></div>
+
+    <div class="toggles">
+      <div class="tg on" id="tg-phase"><span data-i18n="ui.phaseToggle">相图与判读</span><div class="sw"></div></div>
+      <div class="tg" id="tg-mask"><span data-i18n="ui.mask">暗区掩膜</span><div class="sw"></div></div>
+      <p class="note" data-i18n="note.mask">实时跟着播放走：光到现在还没照到的格子，随播放缩小。</p>
+      <div class="tg" id="tg-foci"><span data-i18n="ui.foci">焦点与长轴</span><div class="sw"></div></div>
+      <p class="note" id="fociNote" data-i18n="foci.off">只对彭罗斯房间有效。</p>
+    </div>
+
+    <div class="divider"></div>
+
+    <div class="acts">
+      <button id="btn-play" class="primary" data-i18n="ui.play">开始</button>
+      <button id="btn-reset" data-i18n="ui.reset">重置</button>
+      <button id="btn-restart" data-i18n="ui.replay">重播</button>
+    </div>
+    <p class="note" id="playNote" data-i18n="note.play">重置＝清空轨迹回到初始；重播＝清空并立刻重跑。</p>
+  </aside>
+</div>
+
+<!-- ═══════════════════════════════════════════════════════════════════
+     追踪内核（trace kernel）
+     这份源码被两处共用，物理上只有一份：
+       ① 主线程拿它建 Blob Worker  → 多线程追踪（默认）
+       ② Worker 建不起来时（file:// 被禁、老浏览器）
+          主线程用 new Function 就地造一份 → 单线程回退
+     只写一份，就不会出现「两条实现算出不一样的结果」。
+     内核不碰 DOM、不碰全局状态，输入几何 + 参数，输出顶点/弧长/相图采样。
+     ═══════════════════════════════════════════════════════════════ -->
+<script id="trace-kernel" type="text/js-worker">
+"use strict";
+const TAU = Math.PI * 2;
+const norm = a => { a %= TAU; return a < 0 ? a + TAU : a; };
+/* 有向弧判定：a1 < a0 表示顺时针，此时要反向归一。
+   老实现不管方向一律 norm(a-a0)，顺时针弧被判成对面那半 —— 彭罗斯左右
+   两个内圆正是这种写法，画的是内凹半、碰的是外凸半，看着就是「穿墙而出」。 */
+function angIn(a, a0, a1) {
+  const span = a1 - a0;
+  const t = norm(span >= 0 ? a - a0 : a0 - a);
+  return t <= Math.abs(span) + 1e-9;
+}
+const COARSE = 32;     /* 弧长表每 32 个顶点记一个粗点，查表时局部补算 */
+/* 单条光线最多往相图里记这么多点。
+   曾经是 260 + 「只抽 1/8 的光线进相图」，960 道 × 250 点 = 30,000 点。
+   实测点数对覆盖率的影响（彭罗斯 960×1000，相图 96×48=4,608 格）：
+     7,560 点 → 26.8% ｜ 30,000 → 32.5% ｜ 60,480 → 34.2% ｜ 240,000 → 35.2%
+   也就是说**丢点数确实会低估**，而且主要损失在「抽道数」而不是「每道点数」——
+   全记 960 道、每道只 63 点，就能拿到 240,000 点的 97%。
+   另一头，碰撞次数是真饱和：1000 次 32.5% / 5000 次 32.6% / 20000 次 32.6%，
+   光跑够 1000 次之后相空间就不再踩新格子了。
+   所以改成「全记光线 + 每道 65 点」，总量 ~6 万，覆盖率更准，也不再随光线数变。 */
+const PH_MAX = 65;      /* 每道相点数的**下限**；实际按总预算动态分配，预算值在主线程算 */
+
+let ALL = [], CUM = [], TOTL = 1, GEOV = -1;
+
+/* 求交结果写进复用对象 —— 每次反射 new 一个字面量，在 2000 万次量级上
+   光 GC 就要吃掉一大截。 */
+const H = { t: 0, x: 0, y: 0, nx: 0, ny: 0, u: 0 };
+
+function hitPiece(p, px, py, dx, dy, out) {
+  if (p.k === 'sg') {
+    const sx = p.x2 - p.x1, sy = p.y2 - p.y1;
+    const den = dx * sy - dy * sx;
+    if (den > -1e-14 && den < 1e-14) return false;
+    const t = ((p.x1 - px) * sy - (p.y1 - py) * sx) / den;
+    if (t < 1e-7) return false;
+    const u = ((p.x1 - px) * dy - (p.y1 - py) * dx) / den;
+    if (u < -1e-9 || u > 1 + 1e-9) return false;
+    const L = Math.hypot(sx, sy);
+    out.t = t; out.x = px + t * dx; out.y = py + t * dy;
+    out.nx = -sy / L; out.ny = sx / L; out.u = u;
+    return true;
+  }
+  if (p.k === 'ar') {
+    const ex = px - p.cx, ey = py - p.cy;
+    const a = dx * dx + dy * dy;
+    const b = 2 * (ex * dx + ey * dy);
+    const k = ex * ex + ey * ey - p.r * p.r;
+    const d = b * b - 4 * a * k;
+    if (d < 0) return false;
+    const s = Math.sqrt(d);
+    for (let q = 0; q < 2; q++) {
+      const t = q ? (-b + s) / (2 * a) : (-b - s) / (2 * a);
+      if (t < 1e-7) continue;
+      const hx = px + t * dx, hy = py + t * dy;
+      const th = Math.atan2(hy - p.cy, hx - p.cx);
+      if (!angIn(th, p.a0, p.a1)) continue;
+      const span = p.a1 - p.a0;
+      out.t = t; out.x = hx; out.y = hy;
+      out.nx = (hx - p.cx) / p.r; out.ny = (hy - p.cy) / p.r;
+      out.u = norm(span >= 0 ? th - p.a0 : p.a0 - th) / Math.max(1e-9, Math.abs(span));
+      return true;
+    }
+    return false;
+  }
+  const ex = px - p.cx, ey = py - p.cy;
+  const a = (dx * dx) / (p.rx * p.rx) + (dy * dy) / (p.ry * p.ry);
+  const b = 2 * ((ex * dx) / (p.rx * p.rx) + (ey * dy) / (p.ry * p.ry));
+  const k = (ex * ex) / (p.rx * p.rx) + (ey * ey) / (p.ry * p.ry) - 1;
+  const d = b * b - 4 * a * k;
+  if (d < 0) return false;
+  const s = Math.sqrt(d);
+  for (let q = 0; q < 2; q++) {
+    const t = q ? (-b + s) / (2 * a) : (-b - s) / (2 * a);
+    if (t < 1e-7) continue;
+    const hx = px + t * dx, hy = py + t * dy;
+    const th = Math.atan2((hy - p.cy) / p.ry, (hx - p.cx) / p.rx);
+    if (!angIn(th, p.a0, p.a1)) continue;
+    let nx = (hx - p.cx) / (p.rx * p.rx), ny = (hy - p.cy) / (p.ry * p.ry);
+    const L = Math.hypot(nx, ny);
+    const span = p.a1 - p.a0;
+    out.t = t; out.x = hx; out.y = hy;
+    out.nx = nx / L; out.ny = ny / L;
+    out.u = norm(span >= 0 ? th - p.a0 : p.a0 - th) / Math.max(1e-9, Math.abs(span));
+    return true;
+  }
+  return false;
+}
+
+/* 椭圆的「沿墙位置」必须按**弧长**算，不能用参数角。
+   线段/圆弧两类的 u 天然就是弧长比例；椭圆用参数角 t 当比例会偏
+   —— 椭圆周长 2.32% 的误差就落在参数角 90° 附近，相图 s 轴被系统性压偏。
+   这里给每个椭圆片建一张 65 点弧长表（建一次，之后每 65 次撞墙才用一次）。 */
+function elTable(p) {
+  const N = 64, t = new Float64Array(N + 1);
+  let s = 0;
+  let px = p.cx + p.rx * Math.cos(p.a0), py = p.cy + p.ry * Math.sin(p.a0);
+  for (let i = 1; i <= N; i++) {
+    const a = p.a0 + (p.a1 - p.a0) * (i / N);
+    const x = p.cx + p.rx * Math.cos(a), y = p.cy + p.ry * Math.sin(a);
+    s += Math.hypot(x - px, y - py); t[i] = s;
+    px = x; py = y;
+  }
+  for (let i = 0; i <= N; i++) t[i] /= (s || 1);
+  p._t = t;
+  return p;
+}
+/* 参数角比例 u → 弧长比例 */
+function elU(p, u) {
+  const t = p._t;
+  if (!t) return u;
+  const q = Math.max(0, Math.min(1, u)) * 64;
+  const i = Math.min(63, q | 0), f = q - i;
+  return t[i] + (t[i + 1] - t[i]) * f;
+}
+
+function setGeo(v, pieces, cum, totl) {
+  if (v === GEOV) return false;
+  GEOV = v; ALL = pieces; CUM = cum; TOTL = totl;
+  for (let i = 0; i < pieces.length; i++) if (pieces[i].k === 'el') elTable(pieces[i]);
+  return true;
+}
+
+function traceRay(px, py, ang, Kb, V, vs, rec, recEnd, phMax) {
+  let dx = Math.cos(ang), dy = Math.sin(ang);
+  let n = 1;
+  V[vs] = px; V[vs + 1] = py;
+  /* 到当前撞墙点的路径弧长。相图要跟着播放进度长出来（播到哪儿只画到哪儿），
+     光靠「撞墙位置 s」没法排序 —— 那是沿外框量的，跟光走到第几米没关系。
+     多记这一维，主线程才能用 S.T 一刀切。 */
+  let arc = 0;
+  /* 取点必须沿**整条路径**均匀铺开：以前是前 260 次碰撞全记、后面全丢，
+     结果 31,200 个相点全挤在路程前 26%，播放到 30% 相图就长满了，
+     后面 70% 一动不动 —— 看着还是「固定死的」。改成按碰撞序号等间隔抽，
+     260 个点铺满全程，相图才真的跟着光一点点长。 */
+  const PM = phMax > 0 ? phMax : PH_MAX;
+  const phEvery = Math.max(1, Math.ceil(Kb / PM));
+  for (let b = 0; b < Kb; b++) {
+    let bt = Infinity, bx = 0, by = 0, bnx = 0, bny = 0, bu = 0, bi = -1;
+    for (let i = 0; i < ALL.length; i++) {
+      if (hitPiece(ALL[i], px, py, dx, dy, H) && H.t < bt) {
+        bt = H.t; bx = H.x; by = H.y; bnx = H.nx; bny = H.ny; bu = H.u; bi = i;
+      }
+    }
+    if (bi < 0) break;
+    arc += Math.hypot(bx - px, by - py);
+    /* 相图只记撞在外框上的点：s 是沿外框量的弧长，障碍物上没有 s。 */
+    if (rec && b % phEvery === 0 && rec.length < recEnd) {
+      const c = CUM[bi];
+      if (c) {
+        const pc = ALL[bi];
+        /* 椭圆要换成弧长比例；线段/圆弧的 u 本来就是弧长比例。 */
+        const uu = pc.k === 'el' ? elU(pc, bu) : bu;
+        rec.push((c[0] + uu * c[1]) / TOTL, Math.abs(dx * bnx + dy * bny), arc);
+      }
+    }
+    px = bx; py = by;
+    const dn = dx * bnx + dy * bny;
+    dx -= 2 * dn * bnx; dy -= 2 * dn * bny;
+    px += dx * 1e-6; py += dy * 1e-6;
+    V[vs + n * 2] = px; V[vs + n * 2 + 1] = py;
+    n++;
+  }
+  return n;
+}
+
+/* 粗弧长表：cum[k] 是顶点 k*COARSE 处的累计弧长。
+   逐顶点存一张表在 2 万次反射下要 150MB，不值；粗表只占 1/32，
+   查的时候在 32 个顶点的局部区间里补算（≤32 步，比一次二分还便宜）。 */
+function finishPath(V, vs, n, cum, cs) {
+  let s = 0, k = 0;
+  cum[cs] = 0;
+  for (let i = 1; i < n; i++) {
+    const ax = V[vs + (i - 1) * 2], ay = V[vs + (i - 1) * 2 + 1];
+    const bx = V[vs + i * 2], by = V[vs + i * 2 + 1];
+    s += Math.hypot(bx - ax, by - ay);
+    if (i % COARSE === 0) { k++; cum[cs + k] = s; }
+  }
+  return s;
+}
+
+/* 路径扫格标记（markPath/markSeg）已移主线程：暗区灯跟随播放进度
+   实时增量累计（liveLitStep），内核只负责算路径，不再预标记未来。 */
+
+/* 一块 = cnt 条光线。返回可转移的定长缓冲 + 每道实际长度。
+   暗区灯不在这里预标记：那等于把「未来的光」提前画出来，画面才弹
+   20 次掩膜已是终态，还白跑一遍全路径采样（拉满追踪因此慢 6 倍）。
+   灯改由主线程按播放进度实时增量累计（见 liveLitStep）。 */
+function runChunk(m) {
+  const { i0, cnt, Kb, srcx, srcy, rays, phStep, phMax } = m;
+  const PM = phMax > 0 ? phMax : PH_MAX;
+  const vs = Kb + 2;                                  /* 每条光线的顶点槽位数 */
+  const cLen = Math.floor(Kb / COARSE) + 2;            /* 每条光线的粗表槽位数 */
+  const V = new Float32Array(cnt * vs * 2);
+  const C = new Float64Array(cnt * cLen);
+  const N = new Int32Array(cnt);
+  const T = new Float64Array(cnt);
+  const ph = [];
+  const t0 = now();
+  for (let q = 0; q < cnt; q++) {
+    const gi = i0 + q;
+    const ang = ((gi + 0.5) / rays) * TAU;
+    /* 相图记**全部**光线，只按序号抽每道的点数（phEvery 由 PM 定，约 65 点/道）。
+       曾经写「只吃约 120 条轨迹」—— 那是 30,000 点上限时代的做法，
+       实测抽道数比抽每道点数伤得多（全记 960 道、每道只 63 点就拿到
+       24 万点版本 97% 的覆盖率）。 */
+    const rec = (phStep === 1 || gi % phStep === 0) ? ph : null;
+    const n = traceRay(srcx, srcy, ang, Kb, V, q * vs * 2, rec, rec ? rec.length + PM * 3 : 0, PM);
+    const tot = finishPath(V, q * vs * 2, n, C, q * cLen);
+    N[q] = n; T[q] = tot;
+  }
+  return {
+    V, C, N, T, ph: new Float32Array(ph),
+    ms: now() - t0, vs, cLen, i0, cnt,
+    bounces: cnt * Kb,
+  };
+}
+
+function now() {
+  return (typeof performance !== 'undefined' && performance.now) ? performance.now() : Date.now();
+}
+
+/* ── 消息循环：只有真在 worker 里跑才装 ──
+   判定用 importScripts（worker 独有，window 没有），
+   不能用 `typeof self !== 'undefined'` —— 主线程的 self 就是 window，
+   误判会把 window.onmessage 顶掉。 */
+if (typeof self !== 'undefined' && typeof self.importScripts === 'function') {
+  self.onmessage = e => {
+    const m = e.data;
+    if (m.t === 'ping') { self.postMessage({ t: 'pong' }); return; }
+    if (m.t === 'geo') { setGeo(m.v, m.pieces, m.cum, m.totl); self.postMessage({ t: 'geoed', v: m.v }); return; }
+    if (m.t === 'run') {
+      const r = runChunk(m);
+      const tr = [r.V.buffer, r.C.buffer, r.N.buffer, r.T.buffer, r.ph.buffer];
+      self.postMessage(
+        { t: 'done', gen: m.gen, i0: r.i0, cnt: r.cnt, vs: r.vs, cLen: r.cLen,
+          V: r.V, C: r.C, N: r.N, T: r.T, ph: r.ph, ms: r.ms, bounces: r.bounces },
+        tr
+      );
+      return;
+    }
+  };
+}
+</script>
+
+/* ═════════════════ 渲染内核（跑在渲染 Worker 里）═════════════════
+   拖尾描线、密度累积、曝光图渲染 —— 这三样是每帧最重的活，
+   原来全在主线程，速度一拉高就把主线程钉死（描线 5.5ms + 密度 16ms）。
+   浏览器不让两个线程同时画同一个 canvas，但可以整块交给 worker：
+   transferControlToOffscreen 之后，主线程的 canvas 元素由 worker 渲染，
+   主线程照样能拿它当 drawImage 的源去做最后一层合成。
+   于是主线程每帧只剩几次全屏合成，重活全在另一个核上。 */
+<script id="render-kernel" type="text/js-worker">
+"use strict";
+let W = 0, H = 0, DPR = 1, OX = 0, OY = 0, K = 1;
+let GX0 = 0, GY0 = 0, GC = 2, FGX = 660, FGY = 500, maxDist = 1, NG = 0.98;
+let V = null, C = null, N = null, T = null, rays = 0, vs = 0, cLen = 0;
+let dens = null, fTmp = null, fsm = null, FS = [], fRef = 0;
+let tctx = null, fctx = null, fimg = null, LUT = null, fieldC = null, trailC = null;
+const COARSE = 32;
+let budget = 6000, drawMs = 0, stride = 1, tick = 0;
+let fieldEvery = 4, capMax = 20000;   /* 画质降档：曝光图更新频率 / 绘制预算上限 */
+let SBI = null, SBN = 0;
+
+const sx = x => OX + x * K, sy = y => OY - y * K;
+const LOC = { i: 0, f: 0, x: 0, y: 0 };
+
+function locate(ri, s) {
+  const n = N ? N[ri] : 0;
+  const vb = ri * vs * 2, cb = ri * cLen;
+  LOC.i = 0; LOC.f = 0; LOC.x = V[vb]; LOC.y = V[vb + 1];
+  if (!V || n < 2 || s <= 0) return LOC;
+  const KC = Math.floor((n - 1) / COARSE) + 1;
+  let lo = 0, hi = KC;
+  while (hi - lo > 1) { const m = (lo + hi) >> 1; if (C[cb + m] <= s) lo = m; else hi = m; }
+  let acc = C[cb + lo], i = lo * COARSE;
+  if (i >= n - 1) { LOC.i = n - 1; LOC.f = 0; LOC.x = V[vb + (n - 1) * 2]; LOC.y = V[vb + (n - 1) * 2 + 1]; return LOC; }
+  while (i < n - 1) {
+    const ax = V[vb + i * 2], ay = V[vb + i * 2 + 1];
+    const bx = V[vb + (i + 1) * 2], by = V[vb + (i + 1) * 2 + 1];
+    const d = Math.hypot(bx - ax, by - ay);
+    if (acc + d >= s) {
+      const f = d > 1e-9 ? (s - acc) / d : 0;
+      LOC.i = i; LOC.f = f; LOC.x = ax + (bx - ax) * f; LOC.y = ay + (by - ay) * f;
+      return LOC;
+    }
+    acc += d; i++;
+  }
+  LOC.i = n - 1; LOC.f = 0; LOC.x = V[vb + (n - 1) * 2]; LOC.y = V[vb + (n - 1) * 2 + 1];
+  return LOC;
+}
+
+function densSeg(ax, ay, bx, by, w) {
+  const dx = bx - ax, dy = by - ay, len = Math.hypot(dx, dy);
+  if (len < 1e-9) return;
+  const add = w === undefined ? 1 : w;
+  const ux = dx / len, uy = dy / len;
+  let i = Math.floor((ax - GX0) / GC), j = Math.floor((ay - GY0) / GC);
+  if (i < 0 || i >= FGX || j < 0 || j >= FGY) return;
+  const st = ux >= 0 ? 1 : -1, sj = uy >= 0 ? 1 : -1;
+  const tdx = ux === 0 ? Infinity : Math.abs(GC / ux);
+  const tdy = uy === 0 ? Infinity : Math.abs(GC / uy);
+  let tmx = ux === 0 ? Infinity : (GX0 + (i + (ux > 0 ? 1 : 0)) * GC - ax) / ux;
+  let tmy = uy === 0 ? Infinity : (GY0 + (j + (uy > 0 ? 1 : 0)) * GC - ay) / uy;
+  for (let g = 0; g < 100000; g++) {
+    dens[(FGY - 1 - j) * FGX + i] += add;
+    if (tmx < tmy) {
+      if (tmx > len) return;
+      i += st; tmx += tdx;
+      if (i < 0 || i >= FGX) return;
+    } else if (tmy < tmx) {
+      if (tmy > len) return;
+      j += sj; tmy += tdy;
+      if (j < 0 || j >= FGY) return;
+    } else {
+      /* 正好穿格角：两条边同时越过，两侧邻格都算（与 markSeg 的超覆盖一致） */
+      if (tmx > len) return;
+      if (i + st >= 0 && i + st < FGX) dens[(FGY - 1 - j) * FGX + i + st] += add;
+      if (j + sj >= 0 && j + sj < FGY) dens[(FGY - 1 - j - sj) * FGX + i] += add;
+      i += st; j += sj; tmx += tdx; tmy += tdy;
+      if (i < 0 || i >= FGX || j < 0 || j >= FGY) return;
+    }
+  }
+}
+
+function segBuf(n) {
+  if (!SBI || SBN < n) {
+    SBN = n;
+    SBI = {
+      /* ri 必须存：批次下标 k 只数「这一帧真的要画的光」，而顶点槽是
+         按**光线下标**排的。前面有跑完的光（n<2 或 e1<=e0）被 continue 跳过时，
+         k 和 ri 就错开了 —— 从那一刻起，后面每条光都在拿别人那条的顶点画，
+         而且密度也累到错的位置。 */
+      ri: new Int32Array(n),
+      i0: new Int32Array(n), i1: new Int32Array(n),
+      x0: new Float64Array(n), y0: new Float64Array(n),
+      x1: new Float64Array(n), y1: new Float64Array(n),
+    };
+  }
+  return SBI;
+}
+
+/* 画 [t0,t1] 这一段。返回耗时，主线程拿去做预算自适应。
+   cap：本次调用的段数上限（重绘分块时每块各自限额，不然一块吃掉整帧）。 */
+function drawSeg(t0, t1, r, g, b, a, noDens, cap) {
+  if (!V || !rays) return 0;
+  const t = performance.now();
+  const LIMIT = cap || budget;
+  const B = segBuf(rays);
+  let need = 0, m = 0;
+  for (let ri = 0; ri < rays; ri++) {
+    const n = N[ri], tot = T[ri];
+    if (n < 2) continue;
+    const e0 = t0 < tot ? t0 : tot, e1 = t1 < tot ? t1 : tot;
+    if (e1 <= e0 + 1e-9) continue;
+    const q0 = locate(ri, e0), i0 = q0.i, ax = q0.x, ay = q0.y;
+    const q1 = locate(ri, e1), i1 = q1.i, bx = q1.x, by = q1.y;
+    B.ri[m] = ri;
+    B.i0[m] = i0; B.i1[m] = i1; B.x0[m] = ax; B.y0[m] = ay; B.x1[m] = bx; B.y1[m] = by;
+    m++; need += i1 - i0 + 1;
+  }
+  if (!need) return performance.now() - t;
+  const st = need > LIMIT ? Math.ceil(need / LIMIT) : 1;
+  stride = st;
+  tctx.globalCompositeOperation = 'source-over';
+  tctx.strokeStyle = 'rgba(' + r + ',' + g + ',' + b + ',' + a + ')';
+  tctx.lineWidth = 0.8 * DPR;
+  tctx.lineJoin = 'round'; tctx.lineCap = 'round';
+  tctx.beginPath();
+  let drew = false;
+  for (let k = 0; k < m; k++) {
+    const ri = B.ri[k];
+    const n = N[ri], vb = ri * vs * 2;
+    const i0 = B.i0[k], i1 = B.i1[k];
+    const p0x = B.x0[k], p0y = B.y0[k], p1x = B.x1[k], p1y = B.y1[k];
+    if (st > 1) {
+      for (let i = i0 + 1; i <= i1; i += st) {
+        const x1 = V[vb + i * 2 - 2], y1 = V[vb + i * 2 - 1];
+        const x2 = V[vb + i * 2], y2 = V[vb + i * 2 + 1];
+        tctx.moveTo(sx(x1), sy(y1)); tctx.lineTo(sx(x2), sy(y2));
+        if (!noDens) densSeg(x1, y1, x2, y2, st);
+      }
+      drew = true; continue;
+    }
+    const ax0 = sx(p0x), ay0 = sy(p0y), bx0 = sx(p1x), by0 = sy(p1y);
+    if (Math.abs(bx0 - ax0) + Math.abs(by0 - ay0) < 0.55) {
+      if (!noDens) densSeg(p0x, p0y, p1x, p1y, 1);
+      continue;
+    }
+    tctx.moveTo(ax0, ay0);
+    for (let i = i0 + 1; i <= i1; i++) tctx.lineTo(sx(V[vb + i * 2]), sy(V[vb + i * 2 + 1]));
+    tctx.lineTo(bx0, by0);
+    drew = true;
+    let ax = p0x, ay = p0y;
+    for (let i = i0 + 1; i <= i1; i++) {
+      const bx2 = V[vb + i * 2], by2 = V[vb + i * 2 + 1];
+      if (!noDens) densSeg(ax, ay, bx2, by2, 1);
+      ax = bx2; ay = by2;
+    }
+    if (!noDens) densSeg(ax, ay, p1x, p1y, 1);
+  }
+  if (drew) tctx.stroke();
+  return performance.now() - t;
+}
+
+function renderField(t01) {
+  if (!dens || !fimg) return;
+  const img = fimg.data, n = FGX * FGY;
+  const d0 = dens, t1 = fTmp, d = fsm;
+  for (let j = 0; j < FGY; j++) {
+    const r = j * FGX;
+    for (let i = 0; i < FGX; i++) {
+      const a = d0[r + (i > 0 ? i - 1 : 0)];
+      const c = d0[r + (i < FGX - 1 ? i + 1 : FGX - 1)];
+      t1[r + i] = (a + 2 * d0[r + i] + c) * 0.25;
+    }
+  }
+  for (let j = 0; j < FGY; j++) {
+    const r = j * FGX;
+    const u = (j > 0 ? j - 1 : 0) * FGX, v = (j < FGY - 1 ? j + 1 : FGY - 1) * FGX;
+    for (let i = 0; i < FGX; i++) d[r + i] = (t1[u + i] + 2 * t1[r + i] + t1[v + i]) * 0.25;
+  }
+  FS.length = 0;
+  const stp = Math.max(1, (n / 5000) | 0);
+  for (let i = 0; i < n; i += stp) if (d[i] > 0) FS.push(d[i]);
+  if (FS.length < 10) {
+    for (let i = 0; i < n; i++) img[(i << 2) + 3] = 0;
+    fctx.putImageData(fimg, 0, 0);
+    return;
+  }
+  FS.sort((a, b) => a - b);
+  const q90 = FS[(FS.length * 0.9) | 0] || 1;
+  const q15 = FS[(FS.length * 0.15) | 0] || q90;
+  const spread = q90 / Math.max(1e-9, q15);
+  const npE = 0.70 + 0.45 * Math.min(1, Math.max(0, (spread - 1.5) / 4.5));
+  fRef = fRef > 0 ? fRef * 0.9 + q90 * 0.1 : q90;
+  const inv = (0.25 + 0.75 * t01) / Math.max(1e-6, fRef);
+  for (let i = 0; i < n; i++) {
+    const v = d[i], o = i << 2;
+    if (v <= 0) { img[o + 3] = 0; continue; }
+    const t = Math.pow(v * inv, npE) * NG;
+    const j = t > 3 ? 1023 : ((1 - Math.exp(-t)) * 1023) | 0;
+    img[o] = LUT[j << 2]; img[o + 1] = LUT[(j << 2) + 1];
+    img[o + 2] = LUT[(j << 2) + 2]; img[o + 3] = LUT[(j << 2) + 3];
+  }
+  fctx.putImageData(fimg, 0, 0);
+}
+
+function adapt(ms) {
+  drawMs = drawMs * 0.6 + ms * 0.4;
+  if (ms > 9) budget = Math.max(500, Math.round(budget * 0.55));
+  else if (ms > 7) budget = Math.max(500, Math.round(budget * 0.85));
+  else if (ms < 4.5) budget = Math.min(capMax, Math.round(budget * 1.3 + 40));
+  budget = Math.min(budget, capMax);
+}
+
+/* 逐帧淡出在 8 位 alpha 上会卡住：alpha*decay < 0.5 时四舍五入原地不动
+   （实测 decay=0.036 时 alpha 停在 14，decay=0.0018 时干脆停在 255）。
+   结果是「画过的轨迹永远留一层 5.5% 的雾」，拖尾长度旋钮怎么调都看不出
+   差别，重绘也对不上 —— 现场实测：雾占了墨量的 85%。
+   办法：把几帧的衰减攒成一次大一点的（≥0.12，单次能压掉 2~3 个 alpha 级），
+   低端就不会卡住。累积过程严格乘性，总衰减量分毫不差。 */
+let fadeF = 1;
+function decayStep(d) {
+  /* NaN 必须在这里挡掉：!(NaN>0) 为真 → 直接返回 0。漏过去的话
+     Math.min(1,NaN) 还是 NaN，fadeF 变 NaN，最后 toFixed(4) 会抛 RangeError。 */
+  if (!(d > 0)) return 0;
+  /* 下面的 min(1,d) 只兜 +Infinity：正常路径下发送端给的是精确的
+     1-(1-d)ˢᵖᶠ，结构上限 1-(1-0.2164)^7.2=0.827（dcy≤0.2164、spf≤7.2），
+     永远到不了 1，所以这个上限实际上够不着。
+     历史上钳过三次：主线程接收 0.45（trailFade）、worker 接收 0.9（就是这个
+     函数）—— 这是两条渲染路径分家的原因：相对差随 d·spf 增大（0.50 时少抹
+     10%、0.65 时 30.8%、0.90 时 50%），以 0.65 测点算 e 折叠寿命 main 长
+     ln0.35/ln0.55=1.76 倍。发送端也曾压 0.9，那次挡的是另一件事：线性式
+     dcy*spf 低帧率下能到 1.558，不钳会归零（本帧全清），钳住则把本该清空
+     的帧留成 10% 残墨。现在两端同式且都不再钳，墨迹寿命才和 λ 模型对得上。 */
+  fadeF = Math.max(0, fadeF * (1 - Math.min(1, d)));   /* 钳 0 防负数续乘 */
+  if (fadeF > 0.88) return 0;
+  const a = 1 - fadeF;
+  fadeF = 1;
+  return a;
+}
+
+self.onmessage = e => {
+  const m = e.data;
+  if (m.t === 'init') {
+    trailC = m.trail; fieldC = m.field;
+    tctx = trailC.getContext('2d');
+    fctx = fieldC.getContext('2d');
+    LUT = m.LUT; NG = m.ng;
+    return;
+  }
+  if (m.t === 'size') {
+    /* 尺寸没变就保住曝光图：网格步长与格子数只由世界几何决定，
+       拖窗口/切全屏时一格都不用重算。换房间走的是 'reset'（hard），
+       那条路才该把 dens 清零。 */
+    const keep = !!dens && FGX === m.FGX && FGY === m.FGY;
+    W = m.W; H = m.H; DPR = m.DPR;
+    OX = m.OX; OY = m.OY; K = m.K;
+    trailC.width = W; trailC.height = H;
+    GX0 = m.GX0; GY0 = m.GY0; GC = m.GC; FGX = m.FGX; FGY = m.FGY;
+    fieldC.width = FGX; fieldC.height = FGY;
+    if (!keep) {
+      dens = new Float32Array(FGX * FGY);
+      fTmp = new Float32Array(FGX * FGY);
+      fsm = new Float32Array(FGX * FGY);
+      fRef = 0;
+    }
+    fimg = fctx.createImageData(FGX, FGY);
+    return;
+  }
+  if (m.t === 'paths') {
+    V = m.V; C = m.C; N = m.N; T = m.T;
+    rays = m.rays; vs = m.vs; cLen = m.cLen; maxDist = m.maxDist;
+    return;
+  }
+  if (m.t === 'reset') {
+    tctx.setTransform(1, 0, 0, 1, 0, 0);
+    tctx.clearRect(0, 0, W, H);
+    fadeF = 1;
+    /* keep：只清画布（resize 用），曝光场留着。 */
+    if (dens && !m.keep) dens.fill(0);
+    if (m.hard) fRef = 0;
+    renderField(m.t01 || 0);
+    return;
+  }
+  if (m.t === 'frame') {
+    /* **先衰减、再画这一帧的新墨**。顺序反过来的话，本帧新墨会被同一帧的
+       衰减吃掉一截：今天 d 的结构上限是 0.827（1-(1-0.2164)^7.2），新墨一
+       落笔只剩 17.3%；线性式时代 d 能到 1.558，更会连历史一起擦空。那时只好
+       在发送端压一个 0.9，代价是两条渲染路径的口径对不上 λ 模型。
+       换成先擦后画，无论 d 多大都只等于「清掉历史、本帧新墨全亮」。 */
+    const st = decayStep(m.decay);
+    if (st > 0) {
+      tctx.globalCompositeOperation = 'destination-out';
+      tctx.fillStyle = 'rgba(0,0,0,' + st.toFixed(4) + ')';
+      tctx.fillRect(0, 0, W, H);
+      tctx.globalCompositeOperation = 'source-over';
+    }
+    const ms = drawSeg(m.t0, m.t1, m.r, m.g, m.b, m.a, false);
+    adapt(ms);
+    if (++tick % fieldEvery === 0) renderField(m.t01 || 0);
+    self.postMessage({ t: 'st', ms: ms, stride: stride, budget: budget });
+    return;
+  }
+  if (m.t === 'fieldEvery') { fieldEvery = Math.max(2, m.n | 0); return; }
+  if (m.t === 'cap') { capMax = Math.max(500, m.n | 0); budget = Math.min(budget, capMax); return; }
+  if (m.t === 'fade') {
+    tctx.globalCompositeOperation = 'destination-out';
+    tctx.fillStyle = 'rgba(0,0,0,' + m.a.toFixed(4) + ')';
+    tctx.fillRect(0, 0, W, H);
+    tctx.globalCompositeOperation = 'source-over';
+    fadeF = 1;                 /* 显式大衰减已覆盖累积量，别留着以后再补一刀 */
+    if (++tick % fieldEvery === 0) renderField(m.t01 || 0);
+    return;
+  }
+  /* ── 拖尾重绘（调亮度/痕迹长度后用） ──
+     主线程把「衰减窗口」切成若干块逐帧发过来，这里只负责画一块。
+     旧实现一次画整条路径（96 段），窗口只有全程 1% 时等于把历史全点亮，
+     滑杆反馈是假的，恢复播放又被衰减吃回去 —— 所以改成按块收。 */
+  if (m.t === 'repaint' || m.t === 'repaintChunk') {
+    if (m.t === 'repaint') {
+      tctx.setTransform(1, 0, 0, 1, 0, 0);
+      tctx.clearRect(0, 0, W, H);
+      if (!m.c) return;
+    }
+    if (!m.c) return;
+    const c = m.c;
+    const ms = drawSeg(c.t0, c.t1, c.r, c.g, c.b, c.a, true, m.cap);
+    if (m.last) renderField(m.t01 || 0);
+    self.postMessage({ t: 'st', ms: ms, stride: stride, budget: budget });
+    return;
+  }
+  /* 只清拖尾：窗口空了（或没有可画的墨）时用，密度场不动 */
+  if (m.t === 'wipe') {
+    tctx.setTransform(1, 0, 0, 1, 0, 0);
+    tctx.clearRect(0, 0, W, H);
+    renderField(m.t01 || 0);
+    return;
+  }
+};
+</script>
+
+<script>
+"use strict";
+
+/* ═══════════════════════════ 图元 ═══════════════════════════
+   全场景只有三种边界：线段、圆弧、椭圆弧。
+   任意多边形拆线段，圆是 0..2π 的圆弧，椭圆是 0..2π 的椭圆弧。
+   所有形状最终都化归这三个，追踪内核不必知道自己在什么房间里。
+   ─────────────────────────────────────────────────────────── */
+const TAU = Math.PI * 2;
+const sg = (x1, y1, x2, y2) => ({ k: 'sg', x1, y1, x2, y2 });
+const ar = (cx, cy, r, a0, a1) => ({ k: 'ar', cx, cy, r, a0, a1 });
+const el = (cx, cy, rx, ry, a0, a1) => ({ k: 'el', cx, cy, rx, ry, a0, a1 });
+
+const norm = a => { a %= TAU; return a < 0 ? a + TAU : a; };
+/* 角度是否落在 a0→a1 的弧段内。
+   必须按**有向**弧判定：a1<a0 表示顺时针，此时要反向归一。
+   老实现不管方向，一律 norm(a-a0)，于是顺时针弧（span=-π）被判成了
+   对面的半圆——彭罗斯左右两个内圆正是这种写法：画出来的是内凹那半，
+   碰撞却算在外凸那半，光线于是在画好的墙外面反弹，看着就是「穿墙而出」。
+   （实测彭罗斯每条路径有 20+ 个顶点落在墙外 23 个单位处。） */
+function angIn(a, a0, a1) {
+  const span = a1 - a0;
+  const t = norm(span >= 0 ? a - a0 : a0 - a);
+  return t <= Math.abs(span) + 1e-9;
+}
+
+/* 图元采样：绘制、弧长、包围盒、内外判定全靠它 */
+function piecesPts(p, out) {
+  if (p.k === 'sg') { out.push(p.x1, p.y1, p.x2, p.y2); return; }
+  if (p.k === 'ar') {
+    const n = Math.max(10, Math.min(90, Math.ceil(Math.abs(p.a1 - p.a0) * p.r / 6)));
+    for (let i = 0; i <= n; i++) {
+      const t = p.a0 + (p.a1 - p.a0) * (i / n);
+      out.push(p.cx + p.r * Math.cos(t), p.cy + p.r * Math.sin(t));
+    }
+    return;
+  }
+  const n = Math.max(16, Math.min(120, Math.ceil(Math.abs(p.a1 - p.a0) * Math.max(p.rx, p.ry) / 6)));
+  for (let i = 0; i <= n; i++) {
+    const t = p.a0 + (p.a1 - p.a0) * (i / n);
+    out.push(p.cx + p.rx * Math.cos(t), p.cy + p.ry * Math.sin(t));
+  }
+}
+
+/* ═══════════════════════════ 形状 ═══════════════════════════ */
+function polyPieces(pts) {
+  const out = [];
+  for (let i = 0; i < pts.length; i++) {
+    const a = pts[i], b = pts[(i + 1) % pts.length];
+    out.push(sg(a[0], a[1], b[0], b[1]));
+  }
+  return out;
+}
+function ngonPts(n, R, rot) {
+  const out = [];
+  for (let i = 0; i < n; i++) {
+    const t = rot + i * TAU / n;
+    out.push([R * Math.cos(t), R * Math.sin(t)]);
+  }
+  return out;
+}
+function starPts(n, R, r, rot) {
+  const out = [];
+  for (let i = 0; i < n * 2; i++) {
+    const t = rot + i * Math.PI / n;
+    const rr = i % 2 ? r : R;
+    out.push([rr * Math.cos(t), rr * Math.sin(t)]);
+  }
+  return out;
+}
+
+const RX = 560, RY = 300, CX = 473, CR = 110, FW = 22;
+
+/* ═══════════════════════════ 场景 ═══════════════════════════
+   每个场景给出「有序闭合」的外框。顺序很关键：相图的 s 是沿这条环
+   量的弧长，环断了 s 就没有意义。
+   ─────────────────────────────────────────────────────────── */
+/* ═══════════════════════════ 双语文案 ═══════════════════════════
+   页面上每一句给人读的话都从这里取，代码里不再写死任何一种语言。
+   两条不能破的规矩：
+     ① 数字不进字典。所有数由调用方算好传进来 —— 界面上的数必须与画布
+        同源，字典里再搁一个数字常量就变成第二个来源，迟早对不上。
+     ② 面板上每个百分比必须写清分母。英文版一样要写，否则英文读者会把
+        「相空间覆盖率」当成「房间照亮率」来报 bug —— 中文版就这么被
+        误报过一次（Sinai 960×1000：相空间 86%、房间暗区 0%，两数自洽）。
+   ─────────────────────────────────────────────────────────── */
+let LANG = 'zh';
+try { LANG = localStorage.getItem('mr-lang') === 'en' ? 'en' : 'zh'; } catch (e) { /* file:// 下可能被禁，忽略即可 */ }
+const I18N = { zh: {}, en: {} };
+/* 取词。{name} 占位由第二个参数填。缺 key 时退回中文，再缺就把 key 本身
+   显示出来 —— 宁可露一个怪 key 让人来报，也不要静默丢掉一句话。 */
+function t(k, v) {
+  let s = (I18N[LANG] || I18N.zh)[k];
+  if (s == null) s = I18N.zh[k];
+  if (s == null) return k;
+  if (v == null) return s;
+  return String(s).replace(/\{(\w+)\}/g, (m, n) => (v[n] != null ? v[n] : m));
+}
+/* 大数按语言换单位：中文说「万」，英文说 k/M。算法不变，只换量级后缀。 */
+function fmtBig(v) {
+  if (LANG === 'en') {
+    if (v >= 1e6) return (v / 1e6).toFixed(v >= 1e7 ? 0 : 1) + 'M';
+    if (v >= 1e4) return (v / 1e3).toFixed(0) + 'k';
+    return String(v);
+  }
+  if (v >= 1e4) return (v / 1e4).toFixed(v >= 1e5 ? 0 : 1) + ' 万';
+  return String(v);
+}
+
+I18N.zh = {
+  /* 通用 / 按钮 */
+  'ui.shapes': '形状', 'ui.custom': '自定义', 'ui.params': '参数',
+  'ui.reset': '重置', 'ui.play': '开始', 'ui.pause': '暂停',
+  'ui.again': '再播一遍', 'ui.resume': '继续', 'ui.replay': '重播',
+  /* 面板分区 */
+  'ui.rays': '光线数', 'ui.bounceCap': '反射次数上限', 'ui.thread': '计算线程',
+  'ui.render': '渲染方式', 'ui.speed': '传播速度', 'ui.bright': '拖尾亮度',
+  'ui.tail': '痕迹长度', 'ui.obstacles': '障碍物',
+  'ui.auto': '自动', 'ui.manual': '手动', 'ui.single': '单线程',
+  'ui.main': '主线程', 'ui.b20k': '2万',
+  'ui.phaseToggle': '相图与判读', 'ui.mask': '暗区掩膜', 'ui.foci': '焦点与长轴',
+  /* HUD */
+  'hud.rays': '光线', 'hud.bounce': '反射', 'hud.dist': '路程', 'hud.km': 'km',
+  'hud.prog': '进度', 'hud.dark': '暗区', 'hud.lit': '照亮',
+  'hud.speed': '速度', 'hud.bps': '反弹', 'hud.fps': '帧',
+  'hud.spb': '每 {n} 秒 1 次', 'hud.sample': '抽样 1/{n}', 'hud.tier': '降档{n}',
+  /* 外框编辑条 */
+  'cbar.hint': '拖动顶点改外框 · 点边上青点加顶点 · 双击顶点删除',
+  'cbar.editing': '编辑中', 'cbar.edit': '编辑',
+  /* 开场提示 */
+  'hint.title': '光还没有出发', 'hint.body': '点这里，或点右侧「开始」',
+  /* 相图 */
+  'ui.phase': '相图', 'ph.sampling': '采样中',
+  'ph.ax': 's 撞墙位置 · p 入射角余弦（1 正面撞，0 擦着走）<br>点下面三个标签看释义，再点一次返回',
+  'ph.wait': '撞墙点还没攒够，先不下结论。',
+  'ph.line': '一条线', 'ph.band': '分层带', 'ph.fill': '弥散',
+  'ph.lineTip': '点一下看「一条线」是什么意思',
+  'ph.bandTip': '点一下看「分层带」是什么意思',
+  'ph.fillTip': '点一下看「弥散」是什么意思',
+  'ph.stat': '相点 {n} / {tot} 个',
+  'ph.statTip': '每 {n} 次撞墙采 1 个相点，只记撞在外框上的次数（障碍物上没有 s）',
+  'ph.lineD': '覆盖率 <b>&lt;8%</b>（或 8~25% 但点仍收成一条窄带）：横着不散、竖向有序。'
+    + '只有圆/椭圆/矩形这类才真把轨迹锁在焦散线上。'
+    + '<br><span style="color:var(--dim2)">实空间是几条明亮内摆线 · 再点标签返回</span>',
+  'ph.bandD': '覆盖率 <b>8~60%</b>：点分成几条分开的带，带间是真空白。'
+    + '那部分相空间没有通路，光压根到不了——不是被墙挡住。'
+    + '<br><span style="color:var(--dim2)">实空间是边缘锐利的亮区与暗区 · 再点标签返回</span>',
+  'ph.fillD': '覆盖率 <b>&gt;60%</b>：点铺满整片相图，看不出分割线。'
+    + '不同初始方向最后都混进同一片区域——混沌。'
+    + '<br><span style="color:var(--dim2)">实空间整间屋子照得比较均匀，几乎没有暗区 · 再点标签返回</span>',
+  /* 判读 */
+  'vd.insuff': '<span style="color:var(--dim2)">（当前样本还不足以下结论）</span><br>',
+  'vd.isThis': '<b>本场景就属于这一类。</b><br>',
+  'vd.notThis': '<span style="color:var(--dim2)">（本场景不属于这一类）</span><br>',
+  'vd.growing': '光走到 <b>{pct}%</b>，已撞 {got} 次墙 —— 相图还在长，先不下结论。',
+  'vd.cover': '到目前为止，相空间覆盖 <b>{cv}%</b>：{cells} 个相格里踩到 {used} 格。',
+  'vd.sample': '<br><span style="color:var(--dim2)">样本＝已采 {n} / 共 {tot} 个相点（跟着播放走）；'
+    + '分母是相空间格子，不是房间面积——房间照亮率看左下「暗区」。</span>',
+  'vd.warn': '<span style="color:#e8b96a">只攒到 {n} 个相点，相图还没铺开——先看覆盖率，'
+    + '三类判读等样本够了再说。</span><br>',
+  'vd.whyRays': '光线只有 <b>{rays}</b> 道：相位图里就是 {rays} 条一维曲线，'
+    + '覆盖率主要由道数决定，跟「是不是遍历」关系不大。拉到 <b>240 道以上</b>再判类。',
+  'vd.whyFew': '撞墙点还太少，先不下结论——继续播放，相图会跟着光一点点长。',
+  'vd.line': '撞墙点收在一条窄带里，几乎不横向散开——轨迹锁在固定碰撞角上，属于可积。'
+    + '<br><span style="color:var(--dim2)">实空间是规则的焦散，永远铺不满整间屋子。</span>',
+  'vd.band': '点落成几条分开的带，带与带之间是真空白——轨迹进不了那部分相空间。'
+    + '<br><span style="color:var(--dim2)">暗区就是这么来的：不是被墙挡住，是相空间里没有通路。</span>',
+  'vd.fill': '点把整片相图铺满了，看不出分割线——不同初始方向最后都混进同一片区域。'
+    + '<br><span style="color:var(--dim2)">实空间整间屋子照得比较均匀，暗区接近零。</span>',
+  /* 时间单位 */
+  'u.us': ' 微秒', 'u.ms': ' 毫秒', 'u.sec': ' 秒', 'u.min': ' 分',
+  'u.hour': ' 小时', 'u.day': ' 天',
+  'u.ray': ' 道', 'u.threadN': '{n} 条', 'u.obs': ' 个',
+  'rays.min': '12 道', 'rays.max': '最多 960 道',
+  'u.perSec': ' 次/s', 'u.rate': '次反射/秒',
+  /* 速度面板 */
+  'spd.eqC': '= 光速', 'spd.oneOver': 'c 的 1/{v}',
+  'spd.longest': '最长路径 {len}', 'spd.full': '全程 {dur}', 'spd.instant': '一瞬',
+  'spd.flash': '画面一闪就到头', 'spd.screenW': '画面每秒穿过 {n} 个屏宽',
+  'spd.px': '画面每秒前进 {n} px', 'spd.secPerPx': '画面每 {n} 秒前进 1 px',
+  'spd.bps': '每秒 {n} 次反弹', 'spd.spb': '每 {n} 秒 1 次反弹',
+  'spd.accel': '加速 {mul} 倍 · {bps}',
+  'spd.run0': '总路程 —', 'spd.time0': '全程 —',
+  'spd.min': '0.1 mm/s', 'spd.max': '光速 c',
+  'th.min': '1 条',
+  /* 反射次数提示 */
+  'bn.preview': '拖拽预览：',
+  'bn.body': '按不动 {cap} 次：{rays} 道 × {cap} 次 = {tot}段，实际每道 {kb} 次（共 {tot2}段）',
+  /* 线程面板 */
+  'th.fallback': '单线程（回退）', 'th.singleLab': '单线程',
+  'th.manualN': '手动 · {n}', 'th.autoN': '自动 · {n}',
+  'th.tracing': '追踪中 {p}% · {n} 条并行', 'th.cores': '逻辑处理器 {n} 条',
+  'th.renderMain': '渲染：主线程', 'th.renderWorker': '渲染：Worker',
+  'th.probing': '正在探测 Worker',
+  'th.noWorker': 'Worker 起不来（file:// 常被浏览器禁），已回退主线程',
+  'th.last': '上次 {n} 条并行 {ms}',
+  'th.mixed': '实测 {fast} 条快 / {slow} 条慢', 'th.even': '实测各线程速度接近',
+  /* 面板说明 */
+  'note.thread': '追踪用 Worker 并行，快核多领慢核少领；播放逐帧描线只在主线程，只吃一个核。',
+  'note.render': 'Worker = 描线放后台线程；主线程 = 全部在页面线程画。'
+    + '<b>开着硬件加速时若出现周期性卡顿</b>，多半是跨线程搬画布撞上显卡驱动的慢路径 '
+    + '—— 切「主线程」即可，切完自动刷新。',
+  'note.obs': '点一个形状，再到画面里点一下放置。拖动可移动，滚轮缩放，Delete 删除。',
+  'note.mask': '实时跟着播放走：光到现在还没照到的格子，随播放缩小。',
+  'note.play': '重置＝清空轨迹回到初始；重播＝清空并立刻重跑。',
+  'foci.off': '只对彭罗斯房间有效。',
+  'sc.penroseRoom': '彭罗斯房间',
+  'sc.customName': '自定义外框',
+  'sc.customDesc': '外框由你决定。拖动白点改形，点边上的青点加顶点，双击顶点删掉。',
+  'sc.customNote': '任意简单多边形。内角越尖，光线在里面越难逃出来，焦散越锐。',
+  'foci.on': '四个亮点就是四个焦点；两条虚线是它们所在的水平线，也就是蘑菇的肩线。',
+  'obs.circle': '圆', 'obs.tri': '三角', 'obs.star': '五角星', 'obs.rect': '矩形', 'obs.ell': '椭圆',
+  'obs.blocked': '会挡住光源',
+  'tail.resident': ' · 常驻',
+  'tail.tip': '衰减浓度：越大，轨迹在画面上留得越久。'
+    + '滑杆中点 0.90 是默认值，左半到 0.02（几乎立刻消失），右半到 0.99。'
+    + '两边的手感不对称：左半痕迹时长能缩 44 倍，右半只拉长 1.55 倍'
+    + '（0.99 已接近「永不衰减」这条物理上限）。',
+  'hud.tip': '点一下做 3 秒性能自检',
+  /* 性能自检 */
+  'diag.busy': '自检中…3 秒（期间保持播放）',
+  'diag.title': '性能自检 · 本机实测 3 秒',
+  'diag.fps': '帧率 {n} fps   帧间隔 中位 {p50}ms / p90 {p90}ms',
+  'diag.visLabel': '窗口状态 ',
+  'diag.visBg': '（后台！数字作废，窗口放前台再测）', 'diag.visFg': '（前台）',
+  'diag.raf': '帧循环(rAF) 中位 {raf}ms  ·  计时器(setTimeout) 中位 {timer}ms',
+  'diag.canvas': '画布 {w}×{h} = {mp} 百万像素   DPR {dpr}',
+  'diag.render': '渲染线程 {state}   描线 {ms}ms/帧   抽样 1/{stride}',
+  'diag.taken': '已接管', 'diag.notTaken': '未接管（回退主线程）',
+  'diag.compose': '主线程合成 {ms}ms/帧',
+  'diag.mem': 'JS 内存 {mem}   光线 {rays} 道 × {kb} 次',
+  'diag.memUnknown': '未知',
+  'diag.tier': '画质档位 {tier}', 'diag.tierFull': '满效果',
+  'diag.tierDown': '降档 {n}（帧率不达标，已自动减负）',
+  'diag.howto': '怎么读：',
+  'diag.d1': '· 合成 >8ms → 多半是软件渲染（硬件加速被关 / GPU 在黑名单），开 edge://gpu 看 Canvas 一行',
+  'diag.d1ok': '· 合成开销正常',
+  'diag.d2': '· 渲染线程没起来 → 只能一个核硬扛，检查 Edge 是否禁用了 OffscreenCanvas',
+  'diag.d3': '· 描线 >12ms → 渲染线程跟不上，降低光线数或反射数',
+  'diag.d3ok': '· 描线开销正常',
+  'diag.d4': '· 连 setTimeout 都被拖到 {n}ms → 整个浏览器进程被限速/挂起：'
+    + 'Edge 效率模式、Windows 效率模式（任务管理器绿叶图标）、后台节流，或别的程序在抢',
+  'diag.d5': '· 计时器正常、只有 rAF 慢 → 主线程没被卡，是「提交画面」卡住：'
+    + 'GPU 进程/驱动，或第三方叠加层（Xbox 游戏栏、RTSS/MSI Afterburner OSD、护眼滤镜）每帧插一道',
+  'diag.d6': '· 内存 >800MB → 浏览器在反复回收，关掉 Edge 的资源控制与睡眠标签',
+  'diag.close': '点这里关闭',
+};
+
+I18N.en = {
+  'ui.shapes': 'Shapes', 'ui.custom': 'Custom', 'ui.params': 'Controls',
+  'ui.reset': 'Reset', 'ui.play': 'Play', 'ui.pause': 'Pause',
+  'ui.again': 'Play again', 'ui.resume': 'Resume', 'ui.replay': 'Replay',
+  'ui.rays': 'Rays', 'ui.bounceCap': 'Max reflections', 'ui.thread': 'Compute threads',
+  'ui.render': 'Renderer', 'ui.speed': 'Propagation speed', 'ui.bright': 'Trail brightness',
+  'ui.tail': 'Trail length', 'ui.obstacles': 'Obstacles',
+  'ui.auto': 'Auto', 'ui.manual': 'Manual', 'ui.single': 'Single',
+  'ui.main': 'Main thread', 'ui.b20k': '20k',
+  'ui.phaseToggle': 'Phase plot & verdict', 'ui.mask': 'Dark-region mask',
+  'ui.foci': 'Foci & major axis',
+  'hud.rays': 'rays', 'hud.bounce': 'bounces', 'hud.dist': 'path', 'hud.km': 'km',
+  'hud.prog': 'progress', 'hud.dark': 'dark', 'hud.lit': 'lit',
+  'hud.speed': 'speed', 'hud.bps': 'b/s', 'hud.fps': 'fps',
+  'hud.spb': '1 per {n} s', 'hud.sample': 'sampling 1/{n}', 'hud.tier': 'tier {n}',
+  'cbar.hint': 'Drag vertices to reshape · click a cyan dot on an edge to add one '
+    + '· double-click a vertex to remove it',
+  'cbar.editing': 'Editing', 'cbar.edit': 'Edit',
+  'hint.title': 'Light has not set off yet', 'hint.body': 'Click here, or press Play on the right',
+  'ui.phase': 'Phase plot', 'ph.sampling': 'sampling',
+  'ph.ax': 's = where it hits the wall · p = cos(incidence angle) (1 head-on, 0 grazing)'
+    + '<br>Click one of the three labels below for what it means; click again to go back',
+  'ph.wait': 'Not enough wall hits yet — no verdict.',
+  'ph.line': 'A line', 'ph.band': 'Bands', 'ph.fill': 'Diffuse',
+  'ph.lineTip': 'Click to see what “a line” means',
+  'ph.bandTip': 'Click to see what “bands” means',
+  'ph.fillTip': 'Click to see what “diffuse” means',
+  'ph.stat': 'Phase points {n} / {tot}',
+  'ph.statTip': 'One phase point sampled every {n} wall hits; only hits on the outer wall '
+    + 'count (obstacles have no s)',
+  'ph.lineD': 'Coverage <b>&lt;8%</b> (or 8–25% but the points still collapse into one narrow '
+    + 'band): no sideways spread, ordered vertically. Only circle / ellipse / rectangle really '
+    + 'pin trajectories onto a caustic. '
+    + '<br><span style="color:var(--dim2)">In real space: a few bright inner curves · '
+    + 'click the label again to go back</span>',
+  'ph.bandD': 'Coverage <b>8~60%</b>: the points split into a few separate bands, with blank '
+    + 'gaps between them. That part of phase space has no route in — the light simply cannot '
+    + 'get there, it is not blocked by a wall. '
+    + '<br><span style="color:var(--dim2)">In real space: sharp-edged bright and dark '
+    + 'regions · click the label again to go back</span>',
+  'ph.fillD': 'Coverage <b>&gt;60%</b>: the points fill the whole plot, no dividing lines. '
+    + 'Different starting directions all end up mixed into the same region — chaos. '
+    + '<br><span style="color:var(--dim2)">In real space the room is lit fairly evenly, '
+    + 'with almost no dark region · click the label again to go back</span>',
+  'vd.insuff': '<span style="color:var(--dim2)">(not enough samples yet for a verdict)</span><br>',
+  'vd.isThis': '<b>This room falls in this class.</b><br>',
+  'vd.notThis': '<span style="color:var(--dim2)">(this room is not in this class)</span><br>',
+  'vd.growing': 'Light is at <b>{pct}%</b>, {got} wall hits so far — the plot is still '
+    + 'growing, no verdict yet.',
+  'vd.cover': 'Phase-space coverage so far: <b>{cv}%</b> — {used} of {cells} phase cells touched.',
+  'vd.sample': '<br><span style="color:var(--dim2)">Sample = {n} of {tot} phase points '
+    + 'collected so far (it follows playback); the denominator is phase-space cells, not floor '
+    + 'area — for how much of the room is lit, see “dark” at bottom left.</span>',
+  'vd.warn': '<span style="color:#e8b96a">Only {n} phase points so far — the plot has not '
+    + 'opened up yet. Read the coverage number first; the three-class verdict waits until the '
+    + 'sample is large enough.</span><br>',
+  'vd.whyRays': 'Only <b>{rays}</b> rays: in the phase plot that is just {rays} one-dimensional '
+    + 'curves, and coverage is set mostly by the ray count — it says little about whether the '
+    + 'system is ergodic. Push it past <b>240 rays</b> before reading the class.',
+  'vd.whyFew': 'Too few wall hits yet, no verdict — keep playing, the plot grows with the light.',
+  'vd.line': 'The hits stay inside one narrow band and barely spread sideways — trajectories '
+    + 'are locked to a fixed collision angle, i.e. integrable.'
+    + '<br><span style="color:var(--dim2)">In real space that is a regular caustic; it never '
+    + 'fills the room.</span>',
+  'vd.band': 'The points land in a few separate bands with blank gaps between them — '
+    + 'trajectories cannot reach that part of phase space.'
+    + '<br><span style="color:var(--dim2)">That is where dark regions come from: not a wall in '
+    + 'the way, but no route through phase space.</span>',
+  'vd.fill': 'The points fill the whole plot with no dividing lines — different starting '
+    + 'directions all end up mixed together.'
+    + '<br><span style="color:var(--dim2)">In real space the room is lit fairly evenly and the '
+    + 'dark region is near zero.</span>',
+  'u.us': ' µs', 'u.ms': ' ms', 'u.sec': ' s', 'u.min': ' min',
+  'u.hour': ' h', 'u.day': ' d',
+  'u.ray': ' rays', 'u.threadN': '{n}', 'u.obs': '',
+  'rays.min': '12 rays', 'rays.max': 'up to 960 rays',
+  'u.perSec': ' /s', 'u.rate': ' reflections/s',
+  'spd.eqC': '= speed of light', 'spd.oneOver': '1/{v} of c',
+  'spd.longest': 'Longest path {len}', 'spd.full': 'Full run {dur}', 'spd.instant': 'in an instant',
+  'spd.flash': 'too fast to see', 'spd.screenW': '{n} screen widths per second',
+  'spd.px': '{n} px per second on screen', 'spd.secPerPx': '1 px every {n} s on screen',
+  'spd.bps': '{n} bounces per second', 'spd.spb': '1 bounce every {n} s',
+  'spd.accel': '{mul}× faster · {bps}',
+  'spd.run0': 'Total path —', 'spd.time0': 'Full run —',
+  'spd.min': '0.1 mm/s', 'spd.max': 'speed of light c',
+  'th.min': '1',
+  'bn.preview': 'Preview: ',
+  'bn.body': 'Cannot reach {cap}: {rays} rays × {cap} would be {tot} segments; '
+    + 'actually {kb} per ray ({tot2} in all)',
+  'th.fallback': 'Single-threaded (fallback)', 'th.singleLab': 'Single-threaded',
+  'th.manualN': 'Manual · {n}', 'th.autoN': 'Auto · {n}',
+  'th.tracing': 'Tracing {p}% · {n} in parallel', 'th.cores': '{n} logical cores',
+  'th.renderMain': 'Rendering: main thread', 'th.renderWorker': 'Rendering: Worker',
+  'th.probing': 'Probing Worker',
+  'th.noWorker': 'Worker will not start (often blocked on file://) — fell back to the main thread',
+  'th.last': 'Last run: {n} in parallel, {ms}',
+  'th.mixed': 'Measured: {fast} fast / {slow} slow', 'th.even': 'Measured: threads about equally fast',
+  'note.thread': 'Tracing runs on parallel Workers — fast cores take more, slow cores take less. '
+    + 'Playback draws frame by frame on the main thread only, so it uses one core.',
+  'note.render': 'Worker = drawing happens on a background thread; main thread = everything is '
+    + 'drawn on the page thread. <b>If you see periodic stutter with hardware acceleration on</b>, '
+    + 'it is usually the canvas being moved across threads hitting a slow path in the GPU driver '
+    + '— switch to “main thread”, it reloads automatically.',
+  'note.obs': 'Pick a shape, then click in the scene to place it. Drag to move, scroll to resize, '
+    + 'Delete to remove.',
+  'note.mask': 'Follows playback in real time: cells the light has not reached yet, '
+    + 'shrinking as it plays.',
+  'note.play': 'Reset = clear the trajectories and go back to the start; '
+    + 'Replay = clear and immediately run again.',
+  'foci.off': 'Only meaningful in the Penrose room.',
+  'sc.penroseRoom': 'Penrose room',
+  'sc.customName': 'Custom outline',
+  'sc.customDesc': 'The outline is yours. Drag white dots to reshape, click a cyan dot on an edge to add a vertex, double-click a vertex to remove it.',
+  'sc.customNote': 'Any simple polygon. The sharper the interior angle, the harder it is for light to escape and the sharper the caustics.',
+  'foci.on': 'The four bright dots are the four foci; the two dashed lines are the horizontals '
+    + 'they sit on — the shoulders of the mushroom.',
+  'obs.circle': 'Circle', 'obs.tri': 'Triangle', 'obs.star': 'Star',
+  'obs.rect': 'Rectangle', 'obs.ell': 'Ellipse',
+  'obs.blocked': 'Would cover the light source',
+  'tail.resident': ' · permanent',
+  'tail.tip': 'Decay concentration: the higher it is, the longer trajectories stay on screen. '
+    + 'Slider midpoint 0.90 is the default; the left half goes down to 0.02 (vanishes almost at '
+    + 'once), the right half up to 0.99. The two halves are not symmetric: the left can shorten '
+    + 'the trail life by 44×, the right only stretches it by 1.55× (0.99 is already close to the '
+    + 'physical ceiling of “never decays”).',
+  'hud.tip': 'Click for a 3-second performance check',
+  'diag.busy': 'Measuring… 3 s (playback keeps running)',
+  'diag.title': 'Performance check · 3 s measured on this machine',
+  'diag.fps': 'Frame rate {n} fps   frame interval median {p50}ms / p90 {p90}ms',
+  'diag.visLabel': 'Window state ',
+  'diag.visBg': ' (background! numbers are void — bring the window to the front and measure again)',
+  'diag.visFg': ' (foreground)',
+  'diag.raf': 'rAF median {raf}ms  ·  setTimeout median {timer}ms',
+  'diag.canvas': 'Canvas {w}×{h} = {mp} megapixels   DPR {dpr}',
+  'diag.render': 'Render thread {state}   drawing {ms}ms/frame   sampling 1/{stride}',
+  'diag.taken': 'taken over', 'diag.notTaken': 'not taken over (fell back to main thread)',
+  'diag.compose': 'Main-thread compositing {ms}ms/frame',
+  'diag.mem': 'JS memory {mem}   rays {rays} × {kb} bounces',
+  'diag.memUnknown': 'unknown',
+  'diag.tier': 'Quality tier {tier}', 'diag.tierFull': 'full',
+  'diag.tierDown': 'reduced {n} (frame rate below target, load auto-reduced)',
+  'diag.howto': 'How to read this:',
+  'diag.d1': '· Compositing >8ms → most likely software rendering (hardware acceleration off / '
+    + 'GPU blacklisted); open edge://gpu and check the Canvas row',
+  'diag.d1ok': '· Compositing cost is normal',
+  'diag.d2': '· Render thread did not start → one core has to carry everything; check whether '
+    + 'Edge has OffscreenCanvas disabled',
+  'diag.d3': '· Drawing >12ms → the render thread cannot keep up; lower the ray count or the '
+    + 'bounce cap',
+  'diag.d3ok': '· Drawing cost is normal',
+  'diag.d4': '· Even setTimeout is dragged to {n}ms → the whole browser process is being '
+    + 'throttled or suspended: Edge efficiency mode, Windows efficiency mode (green leaf icon in '
+    + 'Task Manager), background throttling, or another program is competing',
+  'diag.d5': '· Timers fine, only rAF is slow → the main thread is not blocked, presenting the '
+    + 'frame is: the GPU process/driver, or a third-party overlay (Xbox Game Bar, RTSS / MSI '
+    + 'Afterburner OSD, blue-light filters) inserting itself every frame',
+  'diag.d6': '· Memory >800MB → the browser is collecting repeatedly; turn off Edge resource '
+    + 'control and sleeping tabs',
+  'diag.close': 'Click here to close',
+};
+
+/* 场景文案：英文放在 SCENES 每项的 en 字段里，不动几何与默认参数。 */
+const SCENES = [
+  {
+    id: 'penrose', name: '彭罗斯', tag: '1958',
+    desc: '镜面墙壁没有漫反射。无论点光源放在哪，总有区域永远照不亮。',
+    note: '两条平移的半椭圆 + 两侧带翼的蘑菇。把光源拖进侧翼那道缝里试试——整间屋子会立刻黑掉，剩下的光全被关在那只翼里。',
+    en: { name: 'Penrose', desc: 'Mirror walls have no diffuse reflection. Put the point source wherever you like — some region stays dark forever.', note: 'Two shifted half-ellipses plus a mushroom with a wing on each side. Drag the source into the slit in a side wing: the whole room goes dark at once, and the light that is left stays trapped inside that wing.' },
+    foci: true, rays: 60,
+    wall: () => [
+      el(0, CR, RX, RY, 0, Math.PI),
+      sg(-RX, CR, -RX, FW), sg(-RX, FW, -CX, FW), sg(-CX, FW, -CX, CR),
+      ar(-CX, 0, CR, Math.PI / 2, -Math.PI / 2),
+      sg(-CX, -CR, -CX, -FW), sg(-CX, -FW, -RX, -FW), sg(-RX, -FW, -RX, -CR),
+      el(0, -CR, RX, RY, Math.PI, TAU),
+      sg(RX, -CR, RX, -FW), sg(RX, -FW, CX, -FW), sg(CX, -FW, CX, -CR),
+      ar(CX, 0, CR, -Math.PI / 2, -Math.PI * 1.5),
+      sg(CX, CR, CX, FW), sg(CX, FW, RX, FW), sg(RX, FW, RX, CR),
+    ],
+  },
+  {
+    id: 'circle', name: '圆', tag: 'INTEGRABLE',
+    desc: '所有轨迹都与一个同心圆相切，碰撞角从头到尾不变。',
+    note: '最干净的可积系统：每条轨道都困在一条相图的水平线上。',
+    en: { name: 'Circle', desc: 'Every trajectory is tangent to one concentric circle; the collision angle never changes.', note: 'The cleanest integrable system there is: each orbit is stuck on a single horizontal line in the phase plot.' },
+    rays: 60,
+    wall: () => [ar(0, 0, 400, 0, TAU)],
+  },
+  {
+    id: 'ellipse', name: '椭圆', tag: 'INTEGRABLE',
+    desc: '轨迹相切于一族共焦双曲线，碰撞角会变但规律严格。',
+    note: '椭圆台球可积。穿过一个焦点的光线，反射后必过另一个焦点。',
+    en: { name: 'Ellipse', desc: 'Trajectories are tangent to a family of confocal hyperbolas — the angle changes, but by a strict rule.', note: 'Elliptical billiards are integrable. A ray through one focus always passes through the other after reflecting.' },
+    rays: 60,
+    wall: () => [el(0, 0, 470, 300, 0, TAU)],
+  },
+  {
+    id: 'rect', name: '矩形', tag: 'INTEGRABLE',
+    desc: '只有四个方向，撞墙只是把某个速度分量取反。',
+    note: '矩形台球完全可积，轨迹要么周期，要么铺成整齐的平行网格。',
+    en: { name: 'Rectangle', desc: 'Only four directions exist; hitting a wall just flips one velocity component.', note: 'Rectangular billiards are fully integrable: every trajectory is either periodic or fills a tidy parallel grid.' },
+    rays: 48,
+    wall: () => polyPieces([[-320, -210], [320, -210], [320, 210], [-320, 210]]),
+  },
+  {
+    id: 'tri', name: '三角', tag: 'RATIONAL',
+    desc: '等边三角形，内角 60°，属有理角多边形。',
+    /* 原来写「轨迹不会真正遍历」—— 跟曝光图当场打架：等边三角的倒三角
+       区域里几乎每条反射线都被踩过（120 道 × 200 次就铺满）。240 道时
+       相空间覆盖 70.3%，判读给的是「弥散」。把结论改成事实。 */
+    note: '有理角多边形（角度都是 π 的有理倍数）：轨迹没有指数发散，但照样铺满整屋。',
+    en: { name: 'Triangle', desc: 'Equilateral, interior angles 60° — a rational polygon.', note: 'Rational polygons (all angles rational multiples of π): no exponential divergence, yet the trajectories still cover the whole room.' },
+    rays: 54,
+    wall: () => polyPieces(ngonPts(3, 430, Math.PI / 2)),
+  },
+  {
+    id: 'pentagon', name: '五边形', tag: 'RATIONAL',
+    desc: '正五边形，内角 108°。',
+    /* 同上：五边形里也找不到一块「所有轨迹都进不去」的正面积死区。 */
+    note: '正五边形也是有理角多边形：没有指数发散，但轨迹照样铺满整屋。',
+    en: { name: 'Pentagon', desc: 'Regular pentagon, interior angles 108°.', note: 'A regular pentagon is also a rational polygon: no exponential divergence, but the trajectories still cover the whole room.' },
+    rays: 60,
+    wall: () => polyPieces(ngonPts(5, 400, Math.PI / 2)),
+  },
+  {
+    id: 'star', name: '五角星', tag: 'RATIONAL',
+    desc: '五个尖角、十个顶点。光线被锐角反复折回，最容易出焦散。',
+    note: '非凸多边形。尖角会把光反复折回，视觉上最容易出焦散。',
+    en: { name: 'Star', desc: 'Five spikes, ten vertices. Sharp angles fold the light back on itself — the easiest way to get caustics.', note: 'A non-convex polygon. The spikes keep folding light back, which is what makes caustics so visible.' },
+    rays: 72,
+    /* 内半径必须是 440/φ² = 168.06。原来写 175，尖角就成了 38.06° 而不是
+       36° = π/5，「RATIONAL」（顶点角都是 π 的有理倍）这句话就站不住 ——
+       有理台球定理的前提都没了。 */
+    wall: () => polyPieces(starPts(5, 440, 440 / (1.6180339887498949 ** 2), Math.PI / 2)),
+  },
+  {
+    id: 'stadium', name: '体育场', tag: 'CHAOTIC',
+    desc: '矩形两边各接一个半圆。Bunimovich 证明它是遍历的。',
+    note: '反直觉的经典：把矩形的直边换成半圆，轨迹就从可积变成混沌。',
+    en: { name: 'Stadium', desc: 'A rectangle capped by a semicircle on each side. Bunimovich proved it is ergodic.', note: 'The classic counter-intuitive one: swap the straight sides of a rectangle for semicircles and the dynamics go from integrable to chaotic.' },
+    rays: 72,
+    wall: () => [
+      sg(-250, 180, 250, 180),
+      ar(250, 0, 180, Math.PI / 2, -Math.PI / 2),
+      sg(250, -180, -250, -180),
+      ar(-250, 0, 180, -Math.PI / 2, -3 * Math.PI / 2),
+    ],
+  },
+  {
+    id: 'sinai', name: 'Sinai', tag: 'CHAOTIC',
+    desc: '矩形正中放一个圆。最著名的混沌台球。',
+    note: '圆把矩形的可积性彻底破坏。任何一条轨迹最终都会铺满全屋。',
+    en: { name: 'Sinai', desc: 'A circle in the middle of a rectangle. The most famous chaotic billiard.', note: 'The circle destroys the integrability of the rectangle completely. Every trajectory eventually fills the whole room.' },
+    rays: 72,
+    wall: () => polyPieces([[-330, -220], [330, -220], [330, 220], [-330, 220]]),
+    obs0: [{ t: 'circle', x: 0, y: 0, r: 105 }],
+  },
+  {
+    id: 'mushroom', name: '蘑菇', tag: 'MIXED',
+    desc: '细茎顶着一个宽半圆帽。同一个房间里，可积与混沌共存。',
+    note: 'Bunimovich 蘑菇：帽子比茎宽，帽里是混沌海，茎里困着规则的稳定岛——光进不去，也出不来。',
+    en: { name: 'Mushroom', desc: 'A thin stem under a wide semicircular cap. Integrable and chaotic, in the same room.', note: 'Bunimovich mushroom: the cap is wider than the stem, so the cap holds a chaotic sea while the stem traps regular stable islands — light cannot get in and cannot get out.' },
+    rays: 72,
+    wall: () => [
+      sg(-96, -230, 96, -230),
+      sg(96, -230, 96, 0),
+      sg(96, 0, 196, 0),
+      ar(0, 0, 196, 0, Math.PI),
+      sg(-196, 0, -96, 0),
+      sg(-96, 0, -96, -230),
+    ],
+  },
+];
+
+function sceneById(id) { return SCENES.find(s => s.id === id) || SCENES[0]; }
+
+/* ═══════════════════════════ 世界 ═══════════════════════════ */
+const S = {
+  scene: 'penrose',
+  rays: 60,
+  /* 用户手动设过的光线数。切场景本来会把 rays 打回该场景的默认道数——
+     用户拉满 960 之后点左边换个图形，面板「啪」地回到 60/72，要么没注意
+     （看到的是低配演示），要么每切一次就得重拉一遍滑杆。这里记住手动值，
+     切场景时优先沿用；从没动过滑杆的人才享受每个场景配好的默认道数
+     （星形 72 道是为了相图不被填满）。 */
+  raysUser: 0,
+  /* 默认 200 次而不是 1000：播放是按真实速度 × 固定倍率推的，
+     2 cm/s 下每秒只弹 1.2 次，1000 次要跑 14 分钟。200 次约 2.8 分钟，
+     相图与密度场的结论完全一致（已验证 10 个场景判读不变）。 */
+  bounces: 200,
+  speed: 1e-5,          /* 1 cm/s — 默认档（滑杆 -5000） */
+  tail: 0.90,
+  fade: 0.58,
+  bright: 4.0,          /* 拖尾亮度倍率（面板可调） */
+  mask: false,
+  foci: false,
+  phase: true,
+  playing: false,       /* 开局不动，等用户点「开始」 */
+  started: false,
+  src: { x: 0, y: 0 },
+  obs: [],
+  obsType: null,
+  customPts: [],
+  edit: true,
+  hi: -1,
+  selObs: -1,
+  T: 0, prevT: 0, ready: false,
+  ending: false, endFade: 0,
+  /* 终态淡出还剩多少墨（1 = 没淡）。淡到 0.45 就定格，
+     不再往下抹、也不再清画布 —— 见主循环里的注释。 */
+  opLeft: 1,
+  fps: 60,
+};
+
+let WALLS = [];          // 外框，有序闭合
+let OBS = [];            // 每个障碍一组 pieces
+let ALL = [];            // 参与碰撞的全部图元
+let CUM = [];            // [{p, s0, len}] 沿外框的弧长表
+let TOTL = 1;            // 外框周长
+let BBOX = { x0: -600, y0: -450, x1: 600, y1: 450 };
+let WALL_EDGES = [];     // 只有外框的边
+let OBS_EDGES = [];      // 障碍的边，按障碍分组（每组是一个闭合环）
+
+function pieceShift(p, dx, dy) {
+  if (p.k === 'sg') return sg(p.x1 + dx, p.y1 + dy, p.x2 + dx, p.y2 + dy);
+  return { k: p.k, cx: p.cx + dx, cy: p.cy + dy, r: p.r, rx: p.rx, ry: p.ry, a0: p.a0, a1: p.a1 };
+}
+
+function obsPieces(o) {
+  let ps;
+  if (o.t === 'circle') ps = [ar(0, 0, o.r, 0, TAU)];
+  else if (o.t === 'tri') ps = polyPieces(ngonPts(3, o.r, Math.PI / 2));
+  else if (o.t === 'star') ps = polyPieces(starPts(5, o.r, o.r * 0.6180339887498949 * 0.6180339887498949, Math.PI / 2));
+  else if (o.t === 'rect') ps = polyPieces([[-o.r * 1.25, -o.r], [o.r * 1.25, -o.r], [o.r * 1.25, o.r], [-o.r * 1.25, o.r]]);
+  else ps = [el(0, 0, o.r * 1.3, o.r, 0, TAU)];
+  return ps.map(p => pieceShift(p, o.x, o.y));
+}
+
+function sceneWall() {
+  if (S.scene === 'custom') return polyPieces(S.customPts);
+  return sceneById(S.scene).wall();
+}
+
+function rebuild() {
+  WALLS = sceneWall();
+  OBS = S.obs.map(obsPieces);
+  ALL = WALLS.slice();
+  for (const grp of OBS) for (const p of grp) ALL.push(p);
+  /* 几何一变就要换版本号：worker 里缓存着上一次的墙，
+     版本号不变它就不换，于是拿旧墙算新房间 —— 拖个顶点光线就穿墙了。 */
+  geoVer++;
+
+  CUM = []; TOTL = 0;
+  for (const p of WALLS) {
+    const pts = [];
+    piecesPts(p, pts);
+    let L = 0;
+    for (let i = 2; i < pts.length; i += 2) L += Math.hypot(pts[i] - pts[i - 2], pts[i + 1] - pts[i - 1]);
+    CUM.push({ p, s0: TOTL, len: L });
+    TOTL += L;
+  }
+  if (TOTL < 1) TOTL = 1;
+
+  let x0 = 1e9, y0 = 1e9, x1 = -1e9, y1 = -1e9;
+  const pushE = (E, pts) => {
+    for (let i = 2; i < pts.length; i += 2) E.push(pts[i - 2], pts[i - 1], pts[i], pts[i + 1]);
+    for (let i = 0; i < pts.length; i += 2) {
+      if (pts[i] < x0) x0 = pts[i];
+      if (pts[i] > x1) x1 = pts[i];
+      if (pts[i + 1] < y0) y0 = pts[i + 1];
+      if (pts[i + 1] > y1) y1 = pts[i + 1];
+    }
+  };
+  /* 墙和障碍的边必须分开存：内外判定是「在外框环内 且 不在任何障碍环内」。
+     混在一起用偶奇规则，障碍一旦压到墙上（拖动时允许圆体贴墙），
+     突到墙外的那一截会被判成房内 —— 掩膜就在墙外糊一块暗区，
+     正是用户看到的「暗区点出现在小形状里面」（2026-10-20 实测：
+     矩形贴上袋 169 格、圆贴凹顶点 60 格幻影）。 */
+  WALL_EDGES = []; OBS_EDGES = [];
+  for (const p of WALLS) { const pts = []; piecesPts(p, pts); pushE(WALL_EDGES, pts); }
+  for (const grp of OBS) {
+    const g = [];
+    for (const p of grp) { const pts = []; piecesPts(p, pts); pushE(g, pts); }
+    OBS_EDGES.push(g);
+  }
+  if (!isFinite(x0)) { x0 = -400; y0 = -300; x1 = 400; y1 = 300; }
+
+  /* 自定义外框：给一个最小视野，免得拖一个点整幅画都在缩放 */
+  if (S.scene === 'custom') {
+    const MINW = 1080, MINH = 820;
+    const cx = (x0 + x1) / 2, cy = (y0 + y1) / 2;
+    if (x1 - x0 < MINW) { x0 = cx - MINW / 2; x1 = cx + MINW / 2; }
+    if (y1 - y0 < MINH) { y0 = cy - MINH / 2; y1 = cy + MINH / 2; }
+  }
+  BBOX = { x0, y0, x1, y1 };
+}
+
+/* 偶奇规则：数 (x,y) 右方的交点数，奇数=在这个闭环内。 */
+function eoInside(E, x, y) {
+  let inside = false;
+  for (let e = 0; e < E.length; e += 4) {
+    const y1 = E[e + 1], y2 = E[e + 3];
+    if ((y1 > y) !== (y2 > y)) {
+      const x1 = E[e], x2 = E[e + 2];
+      if (x1 + (y - y1) * (x2 - x1) / (y2 - y1) > x) inside = !inside;
+    }
+  }
+  return inside;
+}
+
+/* 内外判定 = 在外框环内 且 不在任何障碍环内。
+   这是「带障碍的镜面房间」的正确定义：障碍压墙、互相重叠、贴凹顶点
+   全都正确；混在一起判偶奇会在墙外产生幻影房内区（见 rebuild 注释）。 */
+function pointInRoom(x, y) {
+  if (!eoInside(WALL_EDGES, x, y)) return false;
+  for (let g = 0; g < OBS_EDGES.length; g++) {
+    if (eoInside(OBS_EDGES[g], x, y)) return false;
+  }
+  return true;
+}
+
+/* 离目标点最近的可站位置 */
+function nearestInside(x, y) {
+  const pad = 18;
+  const cell = Math.max(6, (BBOX.x1 - BBOX.x0) / 96);
+  let bx = x, by = y, bd = Infinity;
+  for (let gy = BBOX.y0 + pad; gy <= BBOX.y1 - pad; gy += cell) {
+    for (let gx = BBOX.x0 + pad; gx <= BBOX.x1 - pad; gx += cell) {
+      const d = (gx - x) * (gx - x) + (gy - y) * (gy - y);
+      if (d >= bd) continue;
+      if (!pointInRoom(gx, gy)) continue;
+      bd = d; bx = gx; by = gy;
+    }
+  }
+  return [bx, by];
+}
+
+/* 求交：返回最近的正根 */
+function hitPiece(p, px, py, dx, dy) {
+  if (p.k === 'sg') {
+    const sx = p.x2 - p.x1, sy = p.y2 - p.y1;
+    const den = dx * sy - dy * sx;
+    if (den > -1e-14 && den < 1e-14) return null;
+    const t = ((p.x1 - px) * sy - (p.y1 - py) * sx) / den;
+    if (t < 1e-7) return null;
+    const u = ((p.x1 - px) * dy - (p.y1 - py) * dx) / den;
+    if (u < -1e-9 || u > 1 + 1e-9) return null;
+    const L = Math.hypot(sx, sy);
+    return { t, x: px + t * dx, y: py + t * dy, nx: -sy / L, ny: sx / L, u };
+  }
+  if (p.k === 'ar') {
+    const ex = px - p.cx, ey = py - p.cy;
+    const a = dx * dx + dy * dy;
+    const b = 2 * (ex * dx + ey * dy);
+    const k = ex * ex + ey * ey - p.r * p.r;
+    const d = b * b - 4 * a * k;
+    if (d < 0) return null;
+    const s = Math.sqrt(d);
+    for (const t of [(-b - s) / (2 * a), (-b + s) / (2 * a)]) {
+      if (t < 1e-7) continue;
+      const hx = px + t * dx, hy = py + t * dy;
+      const th = Math.atan2(hy - p.cy, hx - p.cx);
+      if (!angIn(th, p.a0, p.a1)) continue;
+      const span = p.a1 - p.a0;
+      const u = norm(span >= 0 ? th - p.a0 : p.a0 - th) / Math.max(1e-9, Math.abs(span));
+      return { t, x: hx, y: hy, nx: (hx - p.cx) / p.r, ny: (hy - p.cy) / p.r, u };
+    }
+    return null;
+  }
+  const ex = px - p.cx, ey = py - p.cy;
+  const a = (dx * dx) / (p.rx * p.rx) + (dy * dy) / (p.ry * p.ry);
+  const b = 2 * ((ex * dx) / (p.rx * p.rx) + (ey * dy) / (p.ry * p.ry));
+  const k = (ex * ex) / (p.rx * p.rx) + (ey * ey) / (p.ry * p.ry) - 1;
+  const d = b * b - 4 * a * k;
+  if (d < 0) return null;
+  const s = Math.sqrt(d);
+  for (const t of [(-b - s) / (2 * a), (-b + s) / (2 * a)]) {
+    if (t < 1e-7) continue;
+    const hx = px + t * dx, hy = py + t * dy;
+    const th = Math.atan2((hy - p.cy) / p.ry, (hx - p.cx) / p.rx);
+    if (!angIn(th, p.a0, p.a1)) continue;
+    let nx = (hx - p.cx) / (p.rx * p.rx), ny = (hy - p.cy) / (p.ry * p.ry);
+    const L = Math.hypot(nx, ny);
+    const span = p.a1 - p.a0;
+    const u = norm(span >= 0 ? th - p.a0 : p.a0 - th) / Math.max(1e-9, Math.abs(span));
+    return { t, x: hx, y: hy, nx: nx / L, ny: ny / L, u };
+  }
+  return null;
+}
+
+
+
+/* ═══════════════════════════ 相机 ═══════════════════════════ */
+let W = 0, H = 0, DPR = 1, K = 1, OX = 0, OY = 0;
+const sx = x => OX + x * K;
+const sy = y => OY - y * K;
+const wx = px => (px - OX) / K;
+const wy = py => (OY - py) / K;
+
+/* ═══════════════════════════ 追踪 ═══════════════════════════ */
+let paths = [];
+let maxDist = 0;
+let avgSeg = 0;          // 平均自由程（世界单位）：整条路径长 / 实际段数
+let realSegs = 1;        // 实际算出来的段数，和面板上的上限不是一回事
+let avgSegTrue = 0;      // 真·平均自由程（总路程 ÷ 总段数），HUD 的「反弹」用它
+let quickPreview = false; // 当前这趟是拖拽预览（只跑 140 次），不是面板设的值
+let traceGen = 0;
+/* np/ng 是密度场的对比度曲线，na/nak 是调色板的不透明度曲线。
+   原来的 0.55/0.74 让中低密度区也有一层不透明暖色，铺在蓝灰底上就是
+   满屏浑浊的灰雾。提到 1.15 之后，稀疏区几乎透明，只有真正被反复扫过的
+   焦散带才亮起来——这才看得出「金丝织成的房间」。 */
+const TUNE = { a: 0.155, segs: 26, dmul: 2.6, np: 1.15, ng: 0.98, na: 2.00, nak: 0.97 };
+const PTS = [];               // 相图采样点三元组 [撞墙位置 s(归一), |入射角余弦|, 路径弧长]
+
+/* ═══════════════════════════ 追踪线程池 ═══════════════════════════
+   一次满配追踪是 960 道 × 2 万次 = 1920 万次反射、7 亿次求交，
+   单线程要跑 5 秒，主线程会被按死在地板上（这就是「拉满就卡死」）。
+   所以把追踪丢给 Web Worker，主线程只管画。
+
+   线程数怎么定 —— 三层自适应：
+
+   ① 静态上限：navigator.hardwareConcurrency 报的是**逻辑**处理器数
+      （8 核 16 线程 → 16）。它有两个坑：部分浏览器为反指纹故意报小
+      （常见报 4 或 8），且它不区分大核小核。所以只能当参考上限，
+      绝不当结论。主线程必须留一条，所以再减一。
+
+   ② 开工实测（校准）：给每个 worker 同一份活，谁干得快谁是大核。
+      浏览器没有任何 API 能指认大核 —— 只能测。跑两轮取较好的一轮，
+      抵消操作系统调度的抖动。rate 低于中位数 72% 的判为小核。
+
+   ③ 动态分块：不按线程数均分，而是切成 ~6×线程数 个小块排队，
+      谁空了谁领下一块。这样快核自然多干、慢核自然少干，
+      尾部也不会出现「七个等一个」。这一层不依赖②的判定，
+      即使校准被调度噪声骗了，吞吐也不会塌。
+
+   「大核优先」档会直接把判为小核的 worker 停掉。注意：这不一定更快，
+   所以面板上明写实测耗时，用户可以自己切着比。
+   ─────────────────────────────────────────────────────────────── */
+const KERNEL_SRC = document.getElementById('trace-kernel').textContent;
+const HC = Math.max(1, Math.min(navigator.hardwareConcurrency || 4, 32));
+const DMEM = navigator.deviceMemory || 8;
+
+const TP = {
+  mode: 'auto',           // auto | big | single
+  fixN: 0,                // 手动指定线程数（0 = 交给自动）
+  pool: [],               // { w, busy, rate, small, alive }
+  ok: false,              // worker 真的能起？（file:// 下可能被禁）
+  state: 0,               // 0 未探测 1 探测中 2 可用 3 不可用
+  geoV: -1,
+  lastMs: 0, lastRate: 0, lastN: 0, lastBounces: 0,
+};
+
+let geoVer = 0;           // 几何版本号：几何一变，worker 缓存的墙就得换
+let traceProg = 0;        // 追踪进度 0..1
+let tpPump = null;        // 当前这趟追踪的派块函数（过期回包要靠它补派）
+let COARSE = 32;          // 与内核保持一致（查表要用）
+const PH_MIN = 65;        // 与内核 PH_MAX 同一个数：每道相点数的下限
+/* 相图总点数预算 = 3 倍相格数。判「三类」的门槛是 1.5 倍相格数，
+   预算给到它的两倍留余量 —— 和门槛同源，改一个另一个自动跟上。
+   60 道 × 200 次时每道摊到 231 点（实际受反射上限 200 截断 → 12,000 点），
+   960 道时仍是 65 点/道（62,400 点，内存可忽略）。 */
+const POINT_BUDGET = 3 * 96 * 48;
+
+function geoPayload() {
+  const pieces = new Array(ALL.length);
+  for (let i = 0; i < ALL.length; i++) {
+    const p = ALL[i];
+    pieces[i] = p.k === 'sg'
+      ? { k: 'sg', x1: p.x1, y1: p.y1, x2: p.x2, y2: p.y2 }
+      : p.k === 'ar'
+        ? { k: 'ar', cx: p.cx, cy: p.cy, r: p.r, a0: p.a0, a1: p.a1 }
+        : { k: 'el', cx: p.cx, cy: p.cy, rx: p.rx, ry: p.ry, a0: p.a0, a1: p.a1 };
+  }
+  const cum = new Array(CUM.length);
+  for (let i = 0; i < CUM.length; i++) cum[i] = CUM[i] ? [CUM[i].s0, CUM[i].len] : null;
+  return { v: geoVer, pieces, cum, totl: TOTL };
+}
+
+function mkWorker() {
+  let url = null;
+  try {
+    url = URL.createObjectURL(new Blob([KERNEL_SRC], { type: 'text/javascript' }));
+    return new Worker(url);
+  } catch (e) { return null; }
+  finally { if (url) setTimeout(() => { try { URL.revokeObjectURL(url); } catch (e) {} }, 4000); }
+}
+
+/* 这台机器最多允许开几条：留一条给主线程，内存带宽再压一道。
+   滑杆上界、手动档、自动档三处都走它，不许各写一个数。 */
+function tpCap() {
+  return Math.max(1, Math.min(HC - 1, DMEM >= 8 ? 12 : (DMEM >= 4 ? 6 : 3)));
+}
+
+function tpTarget() {
+  /* 硬上限只有一条：留一条主线程，且内存带宽在 12 条以上就先撞墙。
+     手动档必须走同一个上限 —— 原来手动直接 clamp 到 HC（16 条机器就能
+     选 16 条），自动档却封在 12，同一块面板两个口径。
+     内存小于 4GB 的机器少开点，追踪缓冲本身很吃内存。 */
+  const cap = tpCap();
+  if (TP.fixN > 0) return Math.max(1, Math.min(TP.fixN, cap));
+  return Math.max(1, cap);
+}
+
+function newSlot(w) {
+  const s = { w, busy: false, rate: 0, small: false, alive: true, geov: -1, done: null, cal: null, rates: null };
+  newSlotHandlers(s, w);
+  return s;
+}
+
+function newSlotHandlers(s, w) {
+  w.onmessage = ev => {
+    const r = ev.data;
+    if (!r || r.t === 'pong') return;
+    if (r.t !== 'done') return;
+    if (r.gen === -1) { s.busy = false; if (s.cal) s.cal(r); return; }   /* 校准回包 */
+    /* 结果用不用、busy 什么时候放，**全交给这一块的 done 回调判**，这里
+       不能按 gen 提前 return —— 2026-10-20 实测的死锁就是这个提前 return：
+       拖滑杆 / 连点反射上限会在上一趟还没跑完时就开新一趟，新 pump 进来发现
+       12 个槽全 busy、一块也派不出去，只能等旧回包回来时补派；而旧回包恰恰
+       在这里被 return 掉了，s.done 永远不执行 → 所有槽永久 busy → 面板永远
+       挂在「追踪中」。done 回调里那段「过期也要清 busy 再 pump」的保护，
+       被这里挡了整整一层，等于没写。
+       （一个槽一次只接一块：pump 只在 !busy 时派，所以 s.done 必然还是
+        发出去那一趟的闭包，不会把旧结果喂给新一趟。） */
+    if (s.done) s.done(r);
+    else { s.busy = false; if (tpPump) tpPump(); }   /* 没人等结果也得放槽 */
+  };
+  w.onerror = () => { s.alive = false; s.busy = false; };
+}
+
+/* 让存活的 worker 数**正好等于**目标数 —— 只增不减的话，
+   用户手动把线程拉到 1，面板写着「手动 · 1 条」却还在用 12 条跑，
+   那和之前「按 2 万显示 625」是同一类骗人。 */
+function tpSync() {
+  const n = (TP.mode === 'single' || !TP.ok) ? 0 : tpTarget();
+  const live = [], dead = [];
+  for (const s of TP.pool) (s.alive ? live : dead).push(s);
+
+  /* 多的停掉：worker 是实打实的系统线程，留着就在后台抢调度 */
+  for (let i = n; i < live.length; i++) {
+    const s = live[i];
+    s.alive = false; s.busy = false; s.geov = -1; s.done = null;
+    try { s.w.terminate(); } catch (e) {}
+  }
+  /* 少的补上：优先复用死掉的槽位，省一次对象分配 */
+  for (let i = Math.min(n, live.length); i < n; i++) {
+    const w = mkWorker();
+    if (!w) { TP.ok = TP.pool.some(s => s.alive); return; }
+    const s = dead.pop();
+    if (s) {
+      s.w = w; s.alive = true; s.busy = false; s.geov = -1;
+      newSlotHandlers(s, w);
+    } else {
+      TP.pool.push(newSlot(w));
+    }
+  }
+}
+
+function tpAlive() {
+  return TP.pool.filter(s => s.alive);
+}
+
+/* 探测：file:// 下 Blob worker 可能被禁，光 try/catch 抓不到，
+   必须真的发个 ping 看回不回。1.2 秒不回就当没有，走单线程回退。 */
+function tpProbe() {
+  return new Promise(resolve => {
+    if (TP.state === 2 || TP.state === 3) return resolve(TP.state === 2);
+    TP.state = 1;
+    const w = mkWorker();
+    if (!w) { TP.state = 3; TP.ok = false; return resolve(false); }
+    let got = false;
+    /* 超时就先按「不可用」放行，让页面立刻跑起来（第一趟走单线程）。
+       但**不掐掉**这个探测 worker：它要是随后回了 pong，就当场升级成
+       多线程（tpSync 建池），下一趟追踪自动用上。
+       早前的写法是超时就 terminate + 永久标记不可用 —— 探测慢一点
+       就把整台机器的并行能力判了死刑。 */
+    const t = setTimeout(() => {
+      if (got) return;
+      TP.state = 3; TP.ok = false; resolve(false);
+    }, 1200);
+    w.onmessage = ev => {
+      if (ev.data && ev.data.t === 'pong' && !got) {
+        got = true; clearTimeout(t);
+        try { w.terminate(); } catch (e) {}
+        TP.state = 2; TP.ok = true;
+        tpSync();
+        updateThreadUI();
+        resolve(true);
+      }
+    };
+    w.onerror = () => {
+      if (got) return;
+      got = true; clearTimeout(t);
+      try { w.terminate(); } catch (e) {}
+      TP.state = 3; TP.ok = false; resolve(false);
+    };
+    try { w.postMessage({ t: 'ping' }); } catch (e) { TP.state = 3; TP.ok = false; resolve(false); }
+  });
+}
+
+/* 校准：同一份活发给每个 worker，实测速率。跑两轮取较好一轮 ——
+   单轮很容易被后台任务或调度迁移骗到。 */
+function tpCalibrate() {
+  return new Promise(resolve => {
+    const live = TP.pool.filter(s => s.alive);
+    if (!TP.ok || live.length === 0) return resolve();
+    const geo = geoPayload();
+    const Kb = 400, cnt = 4, rays = Math.max(cnt * live.length, S.rays);
+    const jobs = [];
+    for (let round = 0; round < 2; round++) {
+      for (let i = 0; i < live.length; i++) {
+        jobs.push(new Promise(done => {
+          const s = live[i];
+          s.rates = s.rates || [];
+          /* 两轮校准要各自一个回调：共用 s.cal 的话，第一轮回包把 cal 置空，
+             第二轮回包就没人接，Promise 全靠 setTimeout(4000) 兜底才算完。 */
+          let fired = false;
+          s.cal = r => {
+            if (fired) return;
+            fired = true;
+            s.rates.push(r.bounces / Math.max(0.001, r.ms));   /* 反射/ms */
+            done();
+          };
+          if (s.geov !== geo.v) { s.w.postMessage(Object.assign({ t: 'geo' }, geo)); s.geov = geo.v; }
+          s.w.postMessage({
+            t: 'run', gen: -1, i0: i * cnt, cnt, Kb,
+            srcx: S.src.x, srcy: S.src.y, rays, phStep: 1e9,
+          });
+        }));
+      }
+    }
+    let over = false;
+    const fin = () => {
+      if (over) return; over = true;
+      const rs = live.map(s => Math.max.apply(null, s.rates.length ? s.rates : [1e-9]));
+      const sorted = rs.slice().sort((a, b) => a - b);
+      const med = sorted[sorted.length >> 1] || 1;
+      for (let i = 0; i < live.length; i++) {
+        live[i].rate = rs[i];
+        live[i].small = rs[i] < med * 0.72;    /* 明显慢过中位数 → 判小核 */
+      }
+      TP.calibrated = true;
+      updateThreadUI();
+      resolve();
+    };
+    Promise.all(jobs).then(fin);
+    setTimeout(fin, 4000);       /* 兜底：某个 worker 卡住也不能把页面锁死 */
+  });
+}
+
+/* 档位切换/线程数改动后调用：tpSync 会把存活 worker 数对准目标。 */
+
+function adoptPaths(arr, mx, mn) {
+  paths = arr;
+  maxDist = mx;
+  realSegs = Math.max(1, mn);
+  avgSeg = maxDist / realSegs;
+  /* avgSeg 是「最长那条轨迹 ÷ 最少段数」，是平均自由程的**上界**。
+     报「每秒反弹几次」会系统性偏慢，倍率锚点用它也会让 BPS_0=1.2 的标定失效
+     （实测偏 16%）—— 两处都已改走 avgSegTrue（总路程 ÷ 总段数）。
+     avgSeg 现在只当退化兜底：某趟真的一根线段都没有（n<2）时
+     avgSegTrue 退化回它，倍率才不至于除零。 */
+  let tot = 0, segs = 0;
+  for (let i = 0; i < arr.length; i++) {
+    const P = arr[i];
+    tot += P.total; segs += Math.max(0, P.n - 1);
+  }
+  avgSegTrue = segs > 0 ? tot / segs : avgSeg;
+}
+
+function traceChunk(rays, Kb, onDone) {
+  const gen = ++traceGen;
+  /* 追踪期间没有「当前路径」：ready 必须当场落下，否则
+     ①面板的「追踪中 %」永远不出现（满配要跑几百毫秒，不动像死机）；
+     ②按钮不置灰，用户点「开始」是拿**上一个几何**的旧路径在放，
+     而旧 maxDist 跟新房间对不上，第一帧就可能直接跳到终点。 */
+  S.ready = false;
+  syncPlayBtn();       /* 按钮当场置灰：不刷新的话它能点，点下去 beginPlay 静默 return，
+                          看着就是「按了没反应」 */
+  PTS.length = 0;
+  traceProg = 0;
+  /* 全部光线都进相图。原来只抽约 120 条（960 道抽 1/8），理由是
+     「960 道一起上会把相图填满」—— 这个理由站不住：相图是按 96×48 的格子
+     统计密度，点多只是每格计数变大，糊不了；真糊的是归一化参考值，
+     而那个用的是 98 分位，本来就能自适应。
+     实测代价：抽 1/8 让覆盖率从 34.2% 掉到 32.5%（漏掉 1/8 之外的七组轨迹）。
+     每道点数另有 PH_MAX 兜底，所以总量仍可控（~6 万点）。 */
+  const phStep = 1;
+  /* 每道记多少相点：按总预算分。固定 65 点是上一轮留下的坑 ——
+     60 道时总量只有 3,000 点，而「三类判读」的门槛是 6,912 点，
+     于是默认参数下永远只报覆盖率、永远不给结论，三类判读被整体关死。
+     现在 60 道摊到 400 点/道（12,000 点），960 道仍是 65 点/道（62,400 点），
+     总量两头都落在 2.4 万~6 万，内存可忽略。 */
+  const phMax = Math.max(PH_MIN, Math.ceil(POINT_BUDGET / Math.max(1, rays)));
+  const arr = new Array(rays);
+  const t0 = performance.now();
+
+  if (TP.ok && TP.mode !== 'single') tpSync();
+  const live = (TP.ok && TP.mode !== 'single') ? tpAlive() : [];
+
+  const finish = (mx, mn) => {
+    /* 过期回包不许收尾：上一趟的最后一块可能在新一趟开始之后才回来，
+       那时 adoptPaths 会把**旧几何**的路径装进来，还把 ready 置真、
+       时间轴拨回 0 —— 新房间看着像「一按开始就到头」。
+       traceFallback 里本来就有这道 gen 检查，worker 这条路漏了。 */
+    if (gen !== traceGen) return;
+    tpPump = null;
+    TP.lastMs = performance.now() - t0;
+    TP.lastN = live.length || 1;
+    TP.lastBounces = rays * Kb;
+    TP.lastRate = TP.lastMs > 0 ? (rays * Kb) / TP.lastMs * 1000 : 0;
+    traceProg = 1;
+    adoptPaths(arr, mx, mn);
+    R.sync();            /* 把路径拷一份给渲染 worker（满配 154MB，只在完整追踪后） */
+    updateThreadUI();
+    /* 先让调用方把时间轴拨回 0（retrace 的 onDone 负责），再重建掩膜：
+       refreshMask 要用 S.T 算 reveal（暗区显形程度）。顺序反过来的话，
+       此刻 S.T 还是上一趟的终值、liveLit 却是全 0 网格 → reveal=1 →
+       掩膜整间屋刷成暗区、HUD 当场报「暗区 100.0%」，下一帧才改回来
+       （实测可见闪烁）。
+       **这一句只能出现一次**：连调两次会让回调整段跑两遍。 */
+    onDone && onDone();
+    /* 路径换了，暗区灯打回原点：光重新出发，灯跟着播放重新长。
+       绝不留旧灯的残影 —— 那会是上一个光源/场景的「未来数据」。 */
+    liveLitReset();
+    if (S.mask) refreshMask();
+  };
+
+  if (live.length === 0) { traceFallback(gen, rays, Kb, phStep, arr, finish, phMax); return; }
+
+  /* 块大小：块太多则 postMessage 开销盖过计算，块太少则尾部空转、
+     且取消一次追踪要等一块跑完。两侧各压一道上限。 */
+  const chunk = Math.max(1, Math.min(rays,
+    Math.min(Math.ceil(rays / (live.length * 6)), Math.max(1, Math.floor(1.5e5 / Kb)))));
+  const jobs = [];
+  for (let i = 0; i < rays; i += chunk) jobs.push([i, Math.min(chunk, rays - i)]);
+
+  const geo = geoPayload();
+  let ji = 0, doneRays = 0, mx = 0, mn = 1;
+
+  const pump = () => {
+    for (const s of live) {
+      if (s.busy || !s.alive) continue;
+      if (ji >= jobs.length) return;
+      const [i0, cnt] = jobs[ji++];
+      s.busy = true;
+      s.done = r => {
+        s.done = null;
+        /* 过期结果丢掉，但**必须**再泵一次：
+           新任务开跑时若所有 worker 都还忙着旧活，那次 pump 一块也没派出去，
+           只能等旧结果回来时补派。少了这一句就是死锁 ——
+           换场景/拖光源时页面会永远停在「追踪中」。 */
+        if (gen !== traceGen || !s.alive) {
+          s.busy = false;
+          if (tpPump) tpPump();
+          return;
+        }
+        const vs = r.vs, cLen = r.cLen, N = r.N, T = r.T;
+        for (let q = 0; q < r.cnt; q++) {
+          const n = N[q], gi = r.i0 + q;
+          const kc = Math.floor((n - 1) / COARSE) + 1;
+          arr[gi] = {
+            V: r.V.subarray(q * vs * 2, q * vs * 2 + n * 2),
+            cum: r.C.subarray(q * cLen, q * cLen + kc),
+            n, total: T[q],
+          };
+          if (T[q] > mx) { mx = T[q]; mn = Math.max(1, n - 1); }
+        }
+        const ph = r.ph;
+        for (let i = 0; i < ph.length; i++) PTS.push(ph[i]);
+        doneRays += r.cnt;
+        traceProg = doneRays / rays;
+        /* 每回一块就刷一次线程面板：否则「追踪中 %」只在别的地方顺手调
+           updateHud 时才更新，满配那几百毫秒里面板一直挂着上一次的耗时，
+           看着像没反应。 */
+        updateThreadUI();
+        s.busy = false;
+        if (doneRays >= rays) finish(mx, mn);
+        else pump();
+      };
+      if (s.geov !== geo.v) { s.w.postMessage(Object.assign({ t: 'geo' }, geo)); s.geov = geo.v; }
+      s.w.postMessage({
+        t: 'run', gen, i0, cnt, Kb,
+        srcx: S.src.x, srcy: S.src.y, rays, phStep, phMax,
+      });
+    }
+  };
+  /* 记下当前这趟的 pump：上一趟的过期回包要靠它把新任务补派出去。 */
+  tpPump = pump;
+  pump();
+}
+
+/* 单线程回退：worker 起不来（file:// 被禁 / 老浏览器 / 用户手动选单线程）。
+   用的是同一份内核源码，就地 new Function 造一个 —— 结果和多线程逐位一致。 */
+let localKernel = null;
+function kernelLocal() {
+  if (!localKernel) {
+    /* new Function 造出来的作用域里没有 window/worker 的 onmessage 分支，
+       所以只拿到纯计算部分；同一份源码，结果与 worker 逐位一致。 */
+    localKernel = new Function(KERNEL_SRC + '\n;return { rc: runChunk, sg: setGeo, COARSE: COARSE };')();
+    COARSE = localKernel.COARSE;
+  }
+  return localKernel;
+}
+
+function traceFallback(gen, rays, Kb, phStep, arr, finish, phMax) {
+  const K = kernelLocal();
+  const geo = geoPayload();
+  K.sg(geo.v, geo.pieces, geo.cum, geo.totl);
+  let i = 0, mx = 0, mn = 1;
+  const step = () => {
+    if (gen !== traceGen) return;
+    /* 每帧的预算按「求交次数」给，而不是按光线条数。
+       一次求交约 50~100 ns：40 万次是 20~40ms，一帧的合理上限；
+       但这条路径只在没有 worker 时才走（满配要跑 16 秒），
+       给到 80 万次（40~80ms/帧）能在「还能拖滑杆」和「别等太久」之间取中。 */
+    const per = Math.max(1, Math.round(8e5 / (Kb * Math.max(1, ALL.length))));
+    const cnt = Math.min(per, rays - i);
+    const r = K.rc({
+      i0: i, cnt, Kb, srcx: S.src.x, srcy: S.src.y, rays, phStep, phMax,
+    });
+    const vs = r.vs, cLen = r.cLen, N = r.N, T = r.T;
+    for (let q = 0; q < cnt; q++) {
+      const n = N[q], gi = i + q;
+      const kc = Math.floor((n - 1) / COARSE) + 1;
+      arr[gi] = {
+        V: r.V.subarray(q * vs * 2, q * vs * 2 + n * 2),
+        cum: r.C.subarray(q * cLen, q * cLen + kc),
+        n, total: T[q],
+      };
+      if (T[q] > mx) { mx = T[q]; mn = Math.max(1, n - 1); }
+    }
+    for (let z = 0; z < r.ph.length; z++) PTS.push(r.ph[z]);
+    i += cnt;
+    traceProg = i / rays;
+    if (i < rays) nextStep();
+    else finish(mx, mn);
+  };
+  /* rAF 优先（跟屏幕节奏走，拖滑杆不发滞），但 rAF 在后台标签页会停摆 ——
+     那时这条路径就永远跑不完，页面一直卡在「追踪中」。
+     所以同时挂一个 setTimeout 兜底：谁先到谁走，同一个 step 只执行一次。 */
+  let pending = false;
+  function nextStep() {
+    if (pending) return;
+    pending = true;
+    let fired = false;
+    const go = () => { if (fired) return; fired = true; pending = false; step(); };
+    requestAnimationFrame(go);
+    setTimeout(go, 150);
+  }
+  step();
+}
+
+function retrace(Kwant, done) {
+  /* 顶点数组按「反射上限」直接开内存，所以总点数要封顶。
+     有了多线程之后预算可以放开很多：粗弧长表只占 1/32，
+     960 道 × 2 万次 = 1920 万点 ≈ 150MB，8 条线程 0.6 秒算完。
+     内存不够的机器照样要降，但降了必须写回面板 ——
+     面板按 2 万、实际只跑 625 还不吭声，那就是假参数。 */
+  const CAP = DMEM >= 8 ? 2.4e7 : (DMEM >= 4 ? 1.2e7 : 6e6);
+  const Kb = Math.max(20, Math.min(Kwant, S.bounces, Math.round(CAP / Math.max(1, S.rays))));
+  S.kbEff = Kb;
+  /* 几何变化（拖顶点、缩放障碍、换房间）可能把光源挤到墙外：
+     光源在屋外时光开局就穿堂过户，画面是「房间外一段乱飞 + 屋内乱跳」。
+     每次追踪前先把光源拉回房内——优先 (0,0)（演示设定的几何中心），
+     实在回不去才用最近的房内点。 */
+  if (!pointInRoom(S.src.x, S.src.y)) {
+    if (pointInRoom(0, 0)) { S.src.x = 0; S.src.y = 0; }
+    else { const p = nearestInside(S.src.x, S.src.y); S.src.x = p[0]; S.src.y = p[1]; }
+  }
+  traceChunk(S.rays, Kb, () => {
+    resetTrail();
+    /* 播放中重追（拖光源、拖障碍、改参数）不能把时间轴拨回 0 ——
+       否则光每改一次参数就凭空回到起点，用户看到的是「动画一直重启」。
+       新几何的路径长度通常变了，所以保留**进度比例**而不是绝对弧长。 */
+    const keep = S.playing && maxDist > 0 ? Math.min(1, S.T / maxDist) : 0;
+    S.T = keep > 0 ? keep * maxDist : 0;
+    S.prevT = S.T;
+    S.ready = true;
+    /* 重追等于重新开一局。只拨时间轴不拨终态的话，上一趟淡到 0.445 的
+       opLeft 会带到下一趟，那趟的终态就再也不淡了。 */
+    S.ending = false; S.endFade = 0; S.opLeft = 1; endFadeAcc = 0;
+    updateBounceNote();
+    updateSpeedUI();
+    whenReady();
+    done && done();
+  });
+}
+
+/* ═══════════════════════════ 画布 ═══════════════════════════ */
+const canvas = document.getElementById('c');
+const ctx = canvas.getContext('2d');
+let trail = document.createElement('canvas');
+const tctx = trail.getContext('2d');
+const glow1 = document.createElement('canvas');
+const g1 = glow1.getContext('2d');
+const glow2 = document.createElement('canvas');
+const g2 = glow2.getContext('2d');
+/* 两层辉光先在 1/5 尺寸上合并成一张，再一次放大到全屏。
+   原来两层各自放大一次、各写一遍全屏；合成后每帧少一次全屏 drawImage。
+   双线性放大是线性算子，L(aA+bB) = aL(A)+bL(B)，
+   「先在小图上叠加再放大」与「分别放大再叠加」等价，画面看不出差别。 */
+const glowMix = document.createElement('canvas');
+const gm = glowMix.getContext('2d');
+let bg = null;
+
+function resize() {
+  const st = document.getElementById('stage');
+  const cw = st.clientWidth, ch = st.clientHeight;
+  let dpr = Math.min(window.devicePixelRatio || 1, 2);
+  if (cw * ch * dpr * dpr > 3.0e6) dpr = Math.max(1, Math.sqrt(3.0e6 / (cw * ch)));
+  DPR = dpr;
+  W = Math.round(cw * dpr); H = Math.round(ch * dpr);
+  canvas.width = W; canvas.height = H;
+  canvas.style.width = cw + 'px'; canvas.style.height = ch + 'px';
+  if (!R.ok) { trail.width = W; trail.height = H; }   /* 转移出去后由 worker 自己改 */
+  glow1.width = Math.max(2, Math.round(W / 5)); glow1.height = Math.max(2, Math.round(H / 5));
+  glow2.width = Math.max(2, Math.round(W / 16)); glow2.height = Math.max(2, Math.round(H / 16));
+  glowMix.width = glow1.width; glowMix.height = glow1.height;
+
+  const pad = 84 * DPR;
+  const availW = W - pad * 2;
+  const availH = H - pad * 2 - 60 * DPR;
+  const bw = Math.max(1, BBOX.x1 - BBOX.x0), bh = Math.max(1, BBOX.y1 - BBOX.y0);
+  K = Math.min(availW / bw, availH / bh);
+  OX = pad + (availW - bw * K) / 2 - BBOX.x0 * K;
+  OY = H - pad + (availH - bh * K) / 2 + BBOX.y0 * K;
+  OX = W / 2 - ((BBOX.x0 + BBOX.x1) / 2) * K;
+  OY = H / 2 + ((BBOX.y0 + BBOX.y1) / 2) * K + 18 * DPR;
+
+  bg = null;
+  tctx.setTransform(1, 0, 0, 1, 0, 0);
+  tctx.clearRect(0, 0, W, H);
+  buildField(true);        /* 网格只由世界几何决定，拖窗口不清曝光场 */
+  resetTrail(false, true);
+  /* K 是这一轮才算出来的，像素速度那行必须跟着重算，
+     否则面板会停在首次布局前的估值上。 */
+  if ($('v-speed')) updateSpeedUI();
+}
+
+/* ── 浮点密度场 ── */
+let FGX = 660, FGY = 500, GX0 = -580, GY0 = -440, GC = 2;
+let dens = new Float32Array(FGX * FGY);
+let fTmp = new Float32Array(FGX * FGY);
+let fSmooth = new Float32Array(FGX * FGY);
+let fieldCanvas = document.createElement('canvas');
+let fctx = fieldCanvas.getContext('2d');
+let fieldImg = fctx.createImageData(FGX, FGY);
+let fRef = 0;
+const FSAMP = [];
+
+const FIELD_LUT = new Uint8Array(1024 * 4);
+function buildLUT() {
+  /* 暗部不能给暗色。这张图是 lighter 叠加到底色上的，
+     暗色等于「什么都加不上」，叠出来就是一坨浑浊的灰棕。
+     整条 ramp 保持饱和暖橙，只靠 alpha 表现稀疏，稠密处自然推到白。 */
+  const STOPS = [
+    [0.00, 255, 148, 66], [0.30, 255, 180, 106], [0.58, 255, 206, 146],
+    [0.80, 255, 230, 186], [1.00, 255, 250, 232],
+  ];
+  const lerp = (a, b, u) => a + (b - a) * u;
+  for (let i = 0; i < 1024; i++) {
+    /* gv 直接线性。曾经是 (i/1023)^1.95，想压掉背景只留焦散，
+       但 renderField 那边已经做过一次 gamma 和分位归一了，
+       再压一次的结果是参考格只剩 23% 不透明度——整间屋子一片暗灰。 */
+    const gv = i / 1023;
+    let s = 0;
+    while (s < STOPS.length - 2 && gv > STOPS[s + 1][0]) s++;
+    const A = STOPS[s], B = STOPS[s + 1];
+    const u = Math.min(1, Math.max(0, (gv - A[0]) / (B[0] - A[0])));
+    FIELD_LUT[i * 4] = lerp(A[1], B[1], u);
+    FIELD_LUT[i * 4 + 1] = lerp(A[2], B[2], u);
+    FIELD_LUT[i * 4 + 2] = lerp(A[3], B[3], u);
+    FIELD_LUT[i * 4 + 3] = Math.min(255, 255 * Math.pow(gv, TUNE.na) * TUNE.nak) | 0;
+  }
+}
+buildLUT();
+
+/* keepDens：尺寸没变时保留已累积的曝光数据。
+   网格步长 GC 与 FGX/FGY 只由**世界几何**决定（BBOX + 460×340 上限），
+   跟画布像素尺寸无关 —— 所以拖窗口/切全屏时这张图一个格子都不用重算。
+   以前 resize 一律重建 → dens 清零、fRef 归零：暂停态下拖一下窗口，
+   曝光图整块变空白，要等用户再动一下进度滑杆才长回来。 */
+function buildField(keepDens) {
+  const pad = 26;
+  GX0 = BBOX.x0 - pad; GY0 = BBOX.y0 - pad;
+  const w = Math.max(1, BBOX.x1 - BBOX.x0 + pad * 2);
+  const h = Math.max(1, BBOX.y1 - BBOX.y0 + pad * 2);
+  GC = Math.max(w / 460, h / 340);
+  FGX = Math.max(60, Math.ceil(w / GC));
+  FGY = Math.max(60, Math.ceil(h / GC));
+  const n = FGX * FGY;
+  /* fTmp/fSmooth 是每帧重算的草稿缓冲，复用没问题；dens 与 fRef 才是要保的。 */
+  if (keepDens && dens && dens.length === n) {
+    if (!fTmp || fTmp.length !== n) fTmp = new Float32Array(n);
+    if (!fSmooth || fSmooth.length !== n) fSmooth = new Float32Array(n);
+  } else {
+    dens = new Float32Array(n);
+    fTmp = new Float32Array(n);
+    fSmooth = new Float32Array(n);
+    fRef = 0;
+  }
+  /* 渲染 worker 模式下这两张画布已经转移出去了，主线程不能新建、也不能改尺寸。 */
+  if (R.ok) { R.size(); return; }
+  fieldCanvas = document.createElement('canvas');
+  fieldCanvas.width = FGX; fieldCanvas.height = FGY;
+  fctx = fieldCanvas.getContext('2d');
+  fieldImg = fctx.createImageData(FGX, FGY);
+}
+
+/* w = 权重。抽样绘制时只有 1/stride 的段被走到，每段按 stride 加权，
+   累积总量才与全量一致 —— 否则把每帧段数压下来省时间，曝光图会跟着变淡。 */
+function densSeg(ax, ay, bx, by, w) {
+  const dx = bx - ax, dy = by - ay, len = Math.hypot(dx, dy);
+  if (len < 1e-9) return;
+  const add = w === undefined ? 1 : w;
+  const ux = dx / len, uy = dy / len;
+  let i = Math.floor((ax - GX0) / GC), j = Math.floor((ay - GY0) / GC);
+  if (i < 0 || i >= FGX || j < 0 || j >= FGY) return;
+  const st = ux >= 0 ? 1 : -1, sj = uy >= 0 ? 1 : -1;
+  const tdx = ux === 0 ? Infinity : Math.abs(GC / ux);
+  const tdy = uy === 0 ? Infinity : Math.abs(GC / uy);
+  let tmx = ux === 0 ? Infinity : (GX0 + (i + (ux > 0 ? 1 : 0)) * GC - ax) / ux;
+  let tmy = uy === 0 ? Infinity : (GY0 + (j + (uy > 0 ? 1 : 0)) * GC - ay) / uy;
+  for (let g = 0; g < 100000; g++) {
+    dens[(FGY - 1 - j) * FGX + i] += add;
+    if (tmx < tmy) {
+      if (tmx > len) return;
+      i += st; tmx += tdx;
+      if (i < 0 || i >= FGX) return;
+    } else if (tmy < tmx) {
+      if (tmy > len) return;
+      j += sj; tmy += tdy;
+      if (j < 0 || j >= FGY) return;
+    } else {
+      if (tmx > len) return;
+      if (i + st >= 0 && i + st < FGX) dens[(FGY - 1 - j) * FGX + i + st] += add;
+      if (j + sj >= 0 && j + sj < FGY) dens[(FGY - 1 - j - sj) * FGX + i] += add;
+      i += st; j += sj; tmx += tdx; tmy += tdy;
+      if (i < 0 || i >= FGX || j < 0 || j >= FGY) return;
+    }
+  }
+}
+
+function renderField() {
+  const img = fieldImg.data;
+  const n = FGX * FGY;
+  const d0 = dens, t1 = fTmp, d = fSmooth;
+
+  /* 可分离 1-2-1 平滑。原始累积是逐格泊松计数，
+     一格多一格少，放大到屏幕上就是一身沙子。 */
+  for (let j = 0; j < FGY; j++) {
+    const r = j * FGX;
+    for (let i = 0; i < FGX; i++) {
+      const a = d0[r + (i > 0 ? i - 1 : 0)];
+      const c = d0[r + (i < FGX - 1 ? i + 1 : FGX - 1)];
+      t1[r + i] = (a + 2 * d0[r + i] + c) * 0.25;
+    }
+  }
+  for (let j = 0; j < FGY; j++) {
+    const r = j * FGX;
+    const u = (j > 0 ? j - 1 : 0) * FGX;
+    const v = (j < FGY - 1 ? j + 1 : FGY - 1) * FGX;
+    for (let i = 0; i < FGX; i++) d[r + i] = (t1[u + i] + 2 * t1[r + i] + t1[v + i]) * 0.25;
+  }
+
+  /* 参考值取非零格的 90 分位，不取均值。
+     均值会被大片暗区拉低，归一化之后亮部全顶到白色天花板——
+     圆、Sinai 这种"本来就很均匀"的房间会直接烧成一张白纸。 */
+  FSAMP.length = 0;
+  const stride = Math.max(1, (n / 5000) | 0);
+  for (let i = 0; i < n; i += stride) if (d[i] > 0) FSAMP.push(d[i]);
+
+  if (FSAMP.length < 10) {
+    for (let i = 0; i < n; i++) img[(i << 2) + 3] = 0;
+    fctx.putImageData(fieldImg, 0, 0);
+    return;
+  }
+  FSAMP.sort((a, b) => a - b);
+  /* 参考值取 90 分位。取中位数时，五角星这种"整间屋子都差不多"的房间
+     会落在 1.0 附近、被压成一片暗灰——它本来就没有亮部，归一化不该
+     把仅有的那点差异也抹掉。用 90 分位当 1，中位格落在 0.6 左右，
+     焦散带才真的亮得起来。 */
+  const q90 = FSAMP[(FSAMP.length * 0.9) | 0] || 1;
+  const q15 = FSAMP[(FSAMP.length * 0.15) | 0] || q90;
+  /* 曲线指数不能写死。彭罗斯、五角星这类「有明显暗区的房间」要用陡曲线
+     才压得掉中间那层灰雾；Sinai、圆这类「本来就很均匀」的房间用同一条
+     陡曲线会把整间屋子压成暗灰——它没有亮部，压下去就什么都没有了。
+     用 p90/p15 衡量房间的明暗跨度，跨度大就陡、跨度小就平。 */
+  const spread = q90 / Math.max(1e-9, q15);
+  const npE = 0.70 + 0.45 * Math.min(1, Math.max(0, (spread - 1.5) / 4.5));
+  const tgt = q90;
+  fRef = fRef > 0 ? fRef * 0.9 + tgt * 0.1 : tgt;
+  /* 参考值再除以进度，得到「走完全程时的满额中位数」。
+     不除的话，累积量本身正比于 T，除以当前中位数等于把每个时刻都拉满——
+     光才扫过五分之一的房间，屏幕已经是一张奶白的纸了。
+     除完以后亮度跟着走过的比例一起长，早期靠拖尾看路，后期靠曝光图看结论。 */
+  const t01 = maxDist > 0 ? Math.min(1, S.T / maxDist) : 1;
+  const inv = (0.25 + 0.75 * t01) / Math.max(1e-6, fRef);
+
+  for (let i = 0; i < n; i++) {
+    const v = d[i], o = i << 2;
+    if (v <= 0) { img[o + 3] = 0; continue; }
+    const t = Math.pow(v * inv, npE) * TUNE.ng;
+    const j = t > 3 ? 1023 : ((1 - Math.exp(-t)) * 1023) | 0;
+    img[o] = FIELD_LUT[j << 2];
+    img[o + 1] = FIELD_LUT[(j << 2) + 1];
+    img[o + 2] = FIELD_LUT[(j << 2) + 2];
+    img[o + 3] = FIELD_LUT[(j << 2) + 3];
+  }
+  fctx.putImageData(fieldImg, 0, 0);
+  fieldVer++;          /* 曝光图变了，合成缓存要重画 */
+}
+
+/* ── 余辉与色调 ── */
+/* 墨量按光线数反向缩放，但用 0.75 次幂而不是线性：
+   960 道按线性缩放会压到 0.007，整幅金丝直接消失，只剩一堆白点。 */
+const alphaBase = () => Math.max(0.004,
+  Math.min(TUNE.a, TUNE.a * Math.pow(60 / Math.max(1, S.rays), 0.75))) * S.bright;
+const decayOf = p => (p > 0.994 ? 0 : 0.0016 + (1 - p) * (1 - p) * 0.085);
+function decayNow() {
+  const base = decayOf(S.tail);
+  if (base <= 0) return 0;
+  /* 余辉长短只看「拖尾浓度」这一个旋钮，不再按真实速度定标。
+     曾经用 rateUnits（每秒多少世界单位）去缩放，默认速度从 60 m/s
+     改成 2 cm/s 之后 rateUnits 掉到 8，每帧只清 0.3%——
+     一屋子的轨迹线叠十几秒就糊成一张白纸。 */
+  return base * TUNE.dmul;
+}
+function toneAt(f) {
+  /* 拖尾统一走暖金，别用纯白：白线压在新提亮的蓝灰底上像划痕，
+     而且和密度场的金色焦散是两套色系。 */
+  const gv = 238 - 34 * f, b = 196 - 62 * f;
+  return [255, gv | 0, b | 0];
+}
+const alphaAt = f => Math.pow(0.42, S.fade * f);
+
+/* ── 拖尾的可见窗口（弧长） ──
+   播放时画布上真正有的墨，只是「衰减窗口」里最近的一段：每帧按
+   decayNow() 的比例做一次 destination-out，一段墨画出来后约
+   3.5/λ 帧（默认 0.90 时 λ=0.00639，τ≈157 帧，3.5τ≈548 帧 ≈9.1 秒）
+   就淡到看不见了。所以窗口 = 当前推进速率 × 墨迹寿命，与播放时的衰减严格同口径。
+   重绘必须按这个窗口画。原来重绘画的是**整条路径**：默认速度下窗口
+   只占全程的 1%，重绘却画 100% —— 滑杆反馈因此是假的（一屋子历史
+   全线亮起），滑完 decay 又把它吃回窗口态，用户看到的就是「只在
+   滑动时生效，滑完亮度又降回去了」。
+   顺带两个好处：痕迹长度旋钮在暂停态也立刻可见（decay 小→窗口长）；
+   拉满参数下重绘量从 1920 万段掉到几千段，不再抽稀到几乎看不见。 */
+const trailRate = () => runKmps() * UNITS_PER_KM;               /* 世界单位/秒 */
+/* 画布的衰减是「每帧乘一次 (1-d)」，精确的每秒衰减率是 λ=-ln(1-d)。
+   窗口/寿命/存活这套模型必须用 λ：默认档（d=0.00637）窗长只差 0.32%、
+   边缘 2.99% vs 约定的 3%，肉眼无差；痕迹拉到最短（d=0.2164）时
+   窗长差 12.7%、边缘 1.94%。差的不是「哪个数字没对上」，而是
+   「模型里的 τ 必须是画布那件事的 τ」——直接用 d 当 λ 时窗口边缘永远
+   停在 exp(-3.5·λ/d)，是一个系统性常数偏移。
+   destination-out 那边继续吃原始 d（它本来就是乘性的），两套别混用。 */
+const decayLam = () => { const d = decayNow(); return d > 0 ? -Math.log(1 - Math.min(d, 0.999999)) : 0; };
+/* 墨迹「还看得见」的寿命（秒）= 3.5/(λ*60)：衰减到 exp(-3.5)≈3% 的时刻。
+   窗口与界面上的「· N 秒」共用这一处。
+   曾经标签另算一套 ln(255)/(-ln(1-d))/60（淡到 1/255 的时刻），
+   同一条轨迹标签报 14.45 秒、画布窗口只有 9.16 秒，差 1.58 倍。
+   **一个物理量只能有一个来源**，别再单独推一遍。 */
+const trailLifeSec = lam => (lam > 0 ? 3.5 / (lam * 60) : Infinity);
+function trailWindow() {
+  const T = Math.min(S.T, maxDist);
+  if (!(T > 0)) return 0;
+  const rate = trailRate(), lam = decayLam();
+  if (!(rate > 0) || lam <= 0) return T;   /* 不推进 / 不衰减：整段都可见 */
+  return Math.min(T, rate * trailLifeSec(lam));
+}
+/* 画出来之后经过 age 秒还剩多少墨（与每帧乘性衰减 (1-d) 同口径，lam = -ln(1-d)） */
+const trailSurvive = (age, lam) => (lam > 0 ? Math.exp(-lam * 60 * Math.max(0, age)) : 1);
+
+/* ═════════════ 播放速度模型 ═════════════
+   以前这里是「一轮固定 PLAY_SEC 秒跑完」，再乘一个 0.42 次幂的 playMul。
+   两处都错在一起：全程秒数写死，等于无论面板上写 2 cm/s 还是 3000 km/s，
+   画面都是同样的节奏扫完整个房间；playMul 又把十个数量级压成 1:36。
+   结果就是——选 2 cm/s，光点每秒照样穿过十几个屏宽，面板上「每秒前进
+   12 px」纯属安慰剂。用户看到的就是「快得飞」。
+
+   改成名副其实的做法：画面速度 = 真实速度 × 一个**固定**的慢动作倍率。
+   倍率锚在默认的 2 cm/s 上——锚点每秒撞墙 BPS_0 次，这是能看清光线
+   在墙上拐弯、又不至于干等的节奏。同一倍率下，速度调快十倍画面就快
+   十倍，调多少就是多少。
+
+   倍率固定之后，光速就是真的瞬间（真实里本来就是瞬间）。这里不再设
+   「最快也要 N 秒」的上限：设了上限，滑杆后一半就全顶在同一个速度上，
+   从 100 m/s 到光速一个样，等于一半滑杆是死的。宁可诚实。 */
+const SPEED_0 = 2e-5;        // 2 cm/s — 倍率锚点（不再是默认值）
+/* 锚点处每秒 1.2 次。默认速度降到 2 mm/s 之后，实际只有 0.12 次/秒
+   —— 8 秒撞一次墙，一个光点每秒只走 80 px。 */
+const BPS_0 = 1.2;           // 锚点速度下每秒撞墙次数
+
+/* 固定倍率：只由几何决定，跟当前选了多快**无关**。
+   avgSeg 是平均自由程（世界单位），乘 UNIT_KM 换成 km；
+   锚点速度走完这段要 avgSeg*UNIT_KM/SPEED_0 秒，而我们希望它一秒走 BPS_0 段。 */
+function visualMul() {
+  /* 用真·平均自由程。用 avgSeg（最长轨迹 ÷ 最少段数，是上界）的话，
+     「锚点速度下每秒 1.2 次反弹」这句标定就失效（实测偏 16%），
+     而面板上的「反弹」已经按真值算了 —— 两处必须同源。 */
+  const a = avgSegTrue > 0 ? avgSegTrue : avgSeg;
+  if (!(a > 0)) return 1;
+  return (BPS_0 * a * UNIT_KM) / SPEED_0;
+}
+/* 画面上的推进速度（km/s）。所有步进都走这个，别再各算各的。 */
+const runKmps = () => S.speed * visualMul();
+
+/* keepDens：只清画布、不动曝光场。给 resize 用 —— 网格只由世界几何决定，
+   拖窗口不该把已累积的曝光图清零（否则暂停态一拖就整块空白，
+   要等用户再动进度滑杆才长回来）。换房间走 hard=true，那条路必须清。 */
+function resetTrail(hard, keepDens) {
+
+  rp.on = false; rp.dirty = false;   /* 清场时取消未画完的重绘，别往空画布上补历史 */
+  if (R.ok) { R.reset(hard, maxDist ? Math.min(1, S.T / maxDist) : 0, keepDens); return; }
+  tctx.setTransform(1, 0, 0, 1, 0, 0);
+  tctx.clearRect(0, 0, W, H);
+  if (dens && !keepDens) dens.fill(0);
+  /* 同一间屋子里重播时 fRef 不清零：清掉之后开头那几秒参考值还没追上，
+     整间屋子会先亮成一团奶白再沉下去。
+     但换房间必须清 —— 五角星的总路程只有彭罗斯的四分之一，
+     密度尺度差一个量级，沿用旧参考值会让新房间整体压暗。 */
+  if (hard) fRef = 0;
+  renderField();
+}
+
+/* 在**粗**弧长表上定位：先在粗点上二分，再在那 32 个顶点的局部区间里补算。
+   逐顶点存一张表，960 道 × 2 万次就是 1.5GB，不可能；粗表只占 1/32，
+   代价是查一次多走 ≤32 步，比一次二分还便宜。
+   返回的是复用对象 LOC —— 要同时用两个结果，先把数字取出来再查第二个。 */
+const LOC = { i: 0, f: 0, x: 0, y: 0 };
+
+function locate(P, s) {
+  const V = P.V, cum = P.cum, n = P.n;
+  LOC.i = 0; LOC.f = 0; LOC.x = V[0]; LOC.y = V[1];
+  if (n < 2 || s <= 0) return LOC;
+  /* hi 取 K（半开区间）：写成 K-1 的话，二分退出时 lo 会停在
+     「最后一个满足 cum[lo] <= s」的前一格 —— 末端直接偏一个顶点。 */
+  const K = cum.length;
+  let lo = 0, hi = K;
+  while (hi - lo > 1) {
+    const m = (lo + hi) >> 1;
+    if (cum[m] <= s) lo = m; else hi = m;
+  }
+  let acc = cum[lo];
+  let i = lo * COARSE;
+  /* 粗点刚好就是末点：再往下扫会把 acc 的起点挪错一格，
+     在末端偏出一个顶点（实测 s 接近总长时 i 少 1）。直接给末点。 */
+  if (i >= n - 1) {
+    LOC.i = n - 1; LOC.f = 0;
+    LOC.x = V[(n - 1) * 2]; LOC.y = V[(n - 1) * 2 + 1];
+    return LOC;
+  }
+  while (i < n - 1) {
+    const ax = V[i * 2], ay = V[i * 2 + 1];
+    const bx = V[(i + 1) * 2], by = V[(i + 1) * 2 + 1];
+    const d = Math.hypot(bx - ax, by - ay);
+    if (acc + d >= s) {
+      const f = d > 1e-9 ? (s - acc) / d : 0;
+      LOC.i = i; LOC.f = f;
+      LOC.x = ax + (bx - ax) * f; LOC.y = ay + (by - ay) * f;
+      return LOC;
+    }
+    acc += d; i++;
+  }
+  LOC.i = n - 1; LOC.f = 0;
+  LOC.x = V[(n - 1) * 2]; LOC.y = V[(n - 1) * 2 + 1];
+  return LOC;
+}
+function idxAt(P, s) { return locate(P, s).i; }
+function posAtS(P, s) { const r = locate(P, s); return [r.x, r.y]; }
+
+/* 一趟最多画多少段。
+   960 道 × 2 万次 = 1920 万段：一帧全画进 trail，全喂给 densSeg，
+   主线程直接跪——这就是「拉满光线数再拉速度就卡死」。
+   超了按整数步**抽样**：只画真实存在的段，绝不跨顶点连线
+   （跨顶点 = 抄近路穿过墙，几何就假了）。 */
+/* 一趟最多画多少段 —— 不是常数，是**按上一帧实测耗时自适应**的动态值。
+   写死 2 万时，满配下每帧的密度累积就要 16ms、描边再来几毫秒，
+   速度一拉高每帧跨度变大、段数撞满上限，帧时间直接 60~80ms（15fps）。
+   实测自适应后同一档速度稳定在 16ms。目标：单帧 ≤ 7ms，超了就砍。 */
+const DRAW_CAP = 20000;     // 上限：机器够快时最多画这么多
+let drawBudget = 6000;      // 当前预算，逐帧自适应
+let drawMs = 0;             // 上一帧绘制耗时（EMA）
+let drawStride = 1;         // 上一帧的抽样步长，给 HUD 显示
+
+function adaptDrawBudget(ms) {
+  const cap = perfTier >= 3 ? 2500 : DRAW_CAP;   /* 降档 3：预算砍半 */
+  drawMs = drawMs * 0.6 + ms * 0.4;
+  if (ms > 9) drawBudget = Math.max(500, Math.round(drawBudget * 0.55));
+  else if (ms > 7) drawBudget = Math.max(500, Math.round(drawBudget * 0.85));
+  else if (ms < 4.5) drawBudget = Math.min(cap, Math.round(drawBudget * 1.3 + 40));
+  drawBudget = Math.min(drawBudget, cap);
+}
+
+/* 定位结果复用缓冲：原来数段一遍、画一遍，同一条路径要定位 4 次。
+   960 道 × 4 = 3840 次定位 ≈ 1.2ms/帧，纯属浪费。 */
+let SB = null, SBn = 0;
+function segBuf(n) {
+  if (!SB || SBn < n) {
+    SBn = n;
+    SB = {
+      ri: new Int32Array(n), i0: new Int32Array(n), i1: new Int32Array(n),
+      x0: new Float64Array(n), y0: new Float64Array(n),
+      x1: new Float64Array(n), y1: new Float64Array(n),
+    };
+  }
+  return SB;
+}
+
+function drawTrailSegment(t0, t1, noDens, cap, extra) {
+  const f = Math.min(1, t1 / (maxDist || 1));
+  const [r, gv, b] = toneAt(f);
+  /* extra：重绘时按墨迹年龄再乘一个衰减系数（播放时靠画布自身衰减，
+     这里没有历史可衰减，只能按模型算）。实时描线不传。 */
+  const a = alphaBase() * alphaAt(f) * (extra || 1);
+  const LIMIT = cap || drawBudget;
+
+  /* 先数一遍要画多少段，再决定抽样步长 —— 顺手把两端定位结果存下来，
+     第二遍直接用，不再重复定位。 */
+  const B = segBuf(paths.length);
+  let need = 0, m = 0;
+  for (let ri = 0; ri < paths.length; ri++) {
+    const P = paths[ri];
+    if (P.n < 2) continue;
+    const e0 = t0 < P.total ? t0 : P.total;
+    const e1 = t1 < P.total ? t1 : P.total;
+    if (e1 <= e0 + 1e-9) continue;
+    /* LOC 是复用对象，第二个 locate 会覆盖第一个 —— 必须立刻把数字拷出来。 */
+    const q0 = locate(P, e0), i0 = q0.i, ax0 = q0.x, ay0 = q0.y;
+    const q1 = locate(P, e1), i1 = q1.i, bx0 = q1.x, by0 = q1.y;
+    B.ri[m] = ri; B.i0[m] = i0; B.i1[m] = i1;
+    B.x0[m] = ax0; B.y0[m] = ay0; B.x1[m] = bx0; B.y1[m] = by0;
+    m++;
+    need += i1 - i0 + 1;
+  }
+  if (!need) return;
+  const stride = need > LIMIT ? Math.ceil(need / LIMIT) : 1;
+  drawStride = stride;
+
+  tctx.globalCompositeOperation = 'source-over';
+  tctx.strokeStyle = `rgba(${r},${gv},${b},${a})`;
+  tctx.lineWidth = 0.8 * DPR;
+  tctx.lineJoin = 'round';
+  tctx.lineCap = 'round';
+  tctx.beginPath();
+  let drew = false;
+  for (let k = 0; k < m; k++) {
+    const P = paths[B.ri[k]];
+    const { V } = P;
+    const i0 = B.i0[k], i1 = B.i1[k];
+    const p0x = B.x0[k], p0y = B.y0[k], p1x = B.x1[k], p1y = B.y1[k];
+    let drewK = false;
+
+    /* 抽样模式：每段单独 moveTo，画出来的都是真段，只是稀疏。 */
+    if (stride > 1) {
+      for (let i = i0 + 1; i <= i1; i += stride) {
+        const x1 = V[i * 2 - 2], y1 = V[i * 2 - 1];
+        const x2 = V[i * 2], y2 = V[i * 2 + 1];
+        tctx.moveTo(sx(x1), sy(y1));
+        tctx.lineTo(sx(x2), sy(y2));
+        if (!noDens) densSeg(x1, y1, x2, y2, stride);
+      }
+      drewK = true;
+      drew = true;
+      continue;
+    }
+
+    const ax0 = sx(p0x), ay0 = sy(p0y);
+    const bx0 = sx(p1x), by0 = sy(p1y);
+    /* 退化段：长度不到半像素还画，圆头端帽会在原地盖一个亮圆点，
+       一轮轮重播下来攒成一堆白麻子。 */
+    if (Math.abs(bx0 - ax0) + Math.abs(by0 - ay0) < 0.55) {
+      if (!noDens) densSeg(p0x, p0y, p1x, p1y, 1);
+      continue;
+    }
+    tctx.moveTo(ax0, ay0);
+    for (let i = i0 + 1; i <= i1; i++) tctx.lineTo(sx(V[i * 2]), sy(V[i * 2 + 1]));
+    tctx.lineTo(bx0, by0);
+    drewK = true;
+    drew = true;
+    let ax = p0x, ay = p0y;
+    for (let i = i0 + 1; i <= i1; i++) {
+      const bx2 = V[i * 2], by2 = V[i * 2 + 1];
+      if (!noDens) densSeg(ax, ay, bx2, by2, 1);
+      ax = bx2; ay = by2;
+    }
+    if (!noDens) densSeg(ax, ay, p1x, p1y, 1);
+  }
+  if (drew) tctx.stroke();
+}
+
+/* ── 拖尾重绘（调亮度/痕迹长度、resize 后用） ──
+   只重画拖尾，不动密度场与参考值。
+   ① 只画衰减窗口（见 trailWindow），不画整条路径 —— 否则暂停态看到的
+      是「全部历史」，一恢复播放又被 decay 吃回窗口态，滑杆就像没生效。
+   ② 分段重绘：alpha 由段尾进度 + 墨迹年龄决定，一次画完整段同一个
+      亮度就看不出前后渐隐。
+   ③ **分帧做**：调速拉满时窗口可能等于整条路径（960×2万 = 1920 万段），
+      同步画完就是一次秒级长任务 —— 正是当初「调速度卡死」的同款事故。
+      所以一帧只画一段；段数按窗口大小自适应，默认速度下窗口很小，
+      一段就画完，反馈仍是即时的。 */
+const rp = { on: false, dirty: false, i: 0, ch: [], cap: 1024, t01: 0 };
+/* 终态淡出攒着的抹除量（8 位 alpha 量化：不攒够就等于没抹，见主循环） */
+let endFadeAcc = 0;
+function repaintChunks() {
+  const T = Math.min(S.T, maxDist), w = trailWindow();
+  const out = [];
+  if (!(T > 0) || !(w > 0)) return out;
+  const t0 = Math.max(0, T - w);
+  const rate = trailRate(), lam = decayLam();
+  /* 窗口内大约多少段：道数 × 窗口弧长 / 平均自由程 */
+  const est = paths.length * (w / Math.max(1e-9, avgSegTrue || avgSeg || 1));
+  /* 分几块：一块只有一个 alpha，块太少就等于整窗同亮度（实测 1 块时
+     整个窗口按中点年龄算 → 比播放态暗 6 倍），所以至少 8 块把渐隐铺开；
+     块内段数超过半帧预算就再切细，单帧成本始终有限。 */
+  const perCap = Math.max(768, Math.max(drawBudget, R.budget || 0) * 0.6);
+  const n = Math.max(8, Math.min(24, Math.ceil(est / perCap)));
+  for (let i = 0; i < n; i++) {
+    const ta = t0 + (w * i) / n, tb = t0 + (w * (i + 1)) / n;
+    const f = Math.min(1, tb / (maxDist || 1));
+    const [r, g, b] = toneAt(f);
+    const age = rate > 0 ? (T - (ta + tb) / 2) / rate : 0;
+    const sv = trailSurvive(age, lam);
+    out.push({ t0: ta, t1: tb, r: r, g: g, b: b, sv: sv, a: alphaBase() * alphaAt(f) * sv });
+  }
+  return out;
+}
+function clearTrailOnly() {
+  if (R.ok) { R.w.postMessage({ t: 'wipe', t01: maxDist ? Math.min(1, S.T / maxDist) : 0 }); return; }
+  tctx.setTransform(1, 0, 0, 1, 0, 0);
+  tctx.clearRect(0, 0, W, H);
+  renderField();
+}
+function rpStart() {
+  rp.ch = repaintChunks();
+  rp.i = 0; rp.dirty = false;
+  rp.cap = Math.max(256, Math.ceil(Math.max(drawBudget, R.budget || 0) / Math.max(1, rp.ch.length)));
+  rp.t01 = maxDist ? Math.min(1, S.T / maxDist) : 0;
+  rp.on = rp.ch.length > 0;
+  if (!rp.on) clearTrailOnly();
+}
+function repaintTrail() {
+  /* 上一轮没画完时只记最新意图（拖滑杆会连续触发），画完立刻按最新
+     参数再来一轮 —— 反馈最多滞后一轮，但绝不会互相踩。 */
+  if (rp.on) { rp.dirty = true; return; }
+  rpStart();
+}
+/* 一帧画一段。放在主循环里，和 maskLiveTick 并列。 */
+function repaintTick() {
+  if (!rp.on) return;
+  const c = rp.ch[rp.i], last = rp.i === rp.ch.length - 1;
+  if (R.ok) {
+    R.w.postMessage(rp.i === 0
+      ? { t: 'repaint', T: Math.min(S.T, maxDist), cap: rp.cap, t01: rp.t01, c: c, last: last }
+      : { t: 'repaintChunk', c: c, cap: rp.cap, t01: rp.t01, last: last });
+  } else {
+    if (rp.i === 0) { tctx.setTransform(1, 0, 0, 1, 0, 0); tctx.clearRect(0, 0, W, H); }
+    drawTrailSegment(c.t0, c.t1, true, rp.cap, c.sv);
+    if (last) renderField();
+  }
+  rp.i++;
+  if (rp.i >= rp.ch.length) {
+    rp.on = false;
+    if (rp.dirty) rpStart();
+  }
+}
+let repaintQueued = false;
+function repaintTrailSoon() {
+  if (repaintQueued) return;
+  repaintQueued = true;
+  requestAnimationFrame(() => { repaintQueued = false; repaintTrail(); });
+}
+
+/* ── 墙 ── */
+function paintPieces(list, alpha) {
+  ctx.beginPath();
+  for (const p of list) {
+    const pts = [];
+    piecesPts(p, pts);
+    ctx.moveTo(sx(pts[0]), sy(pts[1]));
+    for (let i = 2; i < pts.length; i += 2) ctx.lineTo(sx(pts[i]), sy(pts[i + 1]));
+  }
+  ctx.strokeStyle = alpha;
+  ctx.stroke();
+}
+
+function paintWalls(layer) {
+  ctx.save();
+  ctx.lineJoin = 'round';
+  ctx.lineCap = 'round';
+  ctx.lineWidth = (layer === 0 ? 1.7 : 0.9) * DPR;
+  paintPieces(WALLS, layer === 0 ? 'rgba(124,170,230,.55)' : 'rgba(226,240,255,.62)');
+  if (OBS.length) {
+    for (const grp of OBS) {
+      paintPieces(grp, layer === 0 ? 'rgba(120,168,228,.5)' : 'rgba(222,238,255,.55)');
+    }
+  }
+  ctx.restore();
+}
+
+/* ── 背景 ── */
+function makeBg() {
+  const c = document.createElement('canvas');
+  c.width = W; c.height = H;
+  const x = c.getContext('2d');
+  const grd = x.createRadialGradient(W / 2, H * 0.46, 0, W / 2, H * 0.46, Math.max(W, H) * 0.62);
+  grd.addColorStop(0, '#222e40');
+  grd.addColorStop(0.55, '#1b2432');
+  grd.addColorStop(1, '#141c27');
+  x.fillStyle = grd;
+  x.fillRect(0, 0, W, H);
+  return c;
+}
+
+/* ── 光源 ── */
+function paintSource(t) {
+  const px = sx(S.src.x), py = sy(S.src.y);
+  const pulse = 1 + 0.05 * Math.sin(t / 520);
+  const R = 18 * DPR * pulse;
+  const grd = ctx.createRadialGradient(px, py, 0, px, py, R);
+  grd.addColorStop(0, 'rgba(255,244,220,.95)');
+  grd.addColorStop(.18, 'rgba(255,214,150,.55)');
+  grd.addColorStop(.55, 'rgba(255,166,90,.13)');
+  grd.addColorStop(1, 'rgba(255,150,70,0)');
+  ctx.save();
+  ctx.globalCompositeOperation = 'lighter';
+  ctx.fillStyle = grd;
+  ctx.beginPath(); ctx.arc(px, py, R, 0, TAU); ctx.fill();
+  ctx.restore();
+  ctx.beginPath(); ctx.arc(px, py, 2.6 * DPR, 0, TAU);
+  ctx.fillStyle = '#fffaf0'; ctx.fill();
+  ctx.beginPath(); ctx.arc(px, py, 9 * DPR, 0, TAU);
+  ctx.strokeStyle = 'rgba(255,240,210,.18)';
+  ctx.lineWidth = 1 * DPR; ctx.stroke();
+}
+
+function paintHeads() {
+  if (!paths.length || !S.started) return;
+  ctx.save();
+  ctx.globalCompositeOperation = 'lighter';
+  /* 亮点是「光现在在哪」的唯一线索，得压得住底下的密度场。
+     但也不能亮成一片白麻子 —— 上限压到 0.8，且随光线数收敛。 */
+  /* 光点是「光现在在哪」的线索，但 960 道时保底 0.3 就是满屏下雪。
+     去掉硬保底，改成跟着 alphaBase 一起缩，下限只留 0.05。 */
+  ctx.fillStyle = 'rgba(255,246,228,' +
+    Math.min(0.62, Math.max(0.05, alphaBase() * 3.2)).toFixed(3) + ')';
+  for (let ri = 0; ri < paths.length; ri++) {
+    const P = paths[ri];
+    if (P.n < 2) continue;
+    const p = posAtS(P, Math.min(S.T, P.total));
+    ctx.beginPath();
+    ctx.arc(sx(p[0]), sy(p[1]), 1.35 * DPR, 0, TAU);
+    ctx.fill();
+  }
+  ctx.restore();
+}
+
+/* ── 焦点与长轴（只对彭罗斯） ── */
+function paintFoci() {
+  if (!S.foci || S.scene !== 'penrose') return;
+  ctx.save();
+  ctx.setLineDash([5 * DPR, 5 * DPR]);
+  ctx.lineWidth = 1 * DPR;
+  for (const sgn of [1, -1]) {
+    ctx.strokeStyle = 'rgba(120,160,210,.26)';
+    ctx.beginPath();
+    ctx.moveTo(sx(-RX), sy(sgn * CR)); ctx.lineTo(sx(RX), sy(sgn * CR));
+    ctx.stroke();
+    ctx.strokeStyle = 'rgba(255,201,138,.5)';
+    ctx.beginPath();
+    ctx.moveTo(sx(-CX), sy(sgn * CR)); ctx.lineTo(sx(CX), sy(sgn * CR));
+    ctx.stroke();
+  }
+  ctx.setLineDash([]);
+  for (const sgn of [1, -1]) {
+    for (const xs of [1, -1]) {
+      const px = sx(xs * CX), py = sy(sgn * CR);
+      ctx.beginPath(); ctx.arc(px, py, 3.2 * DPR, 0, TAU);
+      ctx.fillStyle = 'rgba(255,201,138,.9)'; ctx.fill();
+      ctx.beginPath(); ctx.arc(px, py, 7 * DPR, 0, TAU);
+      ctx.strokeStyle = 'rgba(255,201,138,.22)';
+      ctx.lineWidth = 1 * DPR; ctx.stroke();
+    }
+  }
+  ctx.restore();
+}
+
+/* ── 暗区掩膜 ── */
+let maskCanvas = null, maskStats = { dark: 0, room: 0 };
+/* 掩膜网格精度：300 格时每格 3.77 单位（画布上约 4.5px），暗区边缘
+   锯齿明显，且袋口零星亮格把四个袋的边界咬得参差不齐。
+   提到 900（每格 1.26 单位 ≈1.5px）后锯齿消失、孤立亮格被投票抹掉，
+   边缘细腻；实时灯每帧只标新路段，成本可忽略。 */
+const MG = 900;
+
+function invalidateMask() {
+  maskCanvas = null;
+  maskStats = { dark: 0, room: 0 };
+  updateHud();
+}
+
+function maskGridParams() {
+  const G = MG;
+  const pad = 6;
+  const gx0 = BBOX.x0 - pad, gy0 = BBOX.y0 - pad;
+  const w = BBOX.x1 - BBOX.x0 + pad * 2, h = BBOX.y1 - BBOX.y0 + pad * 2;
+  const cell = Math.max(w, h) / G;
+  const gw = Math.ceil(w / cell), gh = Math.ceil(h / cell);
+  return { gx0, gy0, cell, gw, gh };
+}
+
+/* 掩膜后半段：lit 网格 → 投票平滑 → 画成贴片。
+   passes：投票轮数（实时增量 0 轮保速度，播放到终态 2 轮精修边缘）。
+   reveal：暗区显形程度（进度/占比双曲线取大，光才出发时不可见）。 */
+function finishMaskFromGrid(lit, passes) {
+  const { gx0, gy0, cell, gw, gh } = maskGridParams();
+  const ins = insideGrid2(gw, gh, gx0, gy0, cell);
+
+  const dark = new Uint8Array(gw * gh);
+  let dn2 = 0, room = 0, litN = 0;
+  for (let i = 0; i < gw * gh; i++) {
+    if (!ins[i]) continue;
+    room++;
+    if (!lit[i]) { dark[i] = 1; dn2++; } else litN++;
+  }
+  const reveal = maskReveal(litN, room);
+
+  /* 边缘精修：只删「孤立亮格」——8 邻域内一个亮格都没有的格子，本来就是
+     采样噪点（掠射光线在袋口擦出的单格），删掉它四袋边界才齐整。
+     绝不做多数投票：圆屋只有 4.8% 的格子被照亮，7×7 取多数会把整片稀疏
+     但真实的光轨一并投成暗区（实测暗格 58.7 万 → 61.5 万，等于宣布整间
+     屋子都没照到，而全路径复算说 2.97 万格是亮的）。
+     亮格只要还有邻居就一律保留 —— 细光轨因此一根不断，暗区也只会因为
+     删掉噪点而变正确，不会吃掉真信号。 */
+  let bin = dark;
+  for (let pass = 0; pass < (passes === undefined ? 2 : passes); pass++) {
+    const out = new Uint8Array(gw * gh);
+    for (let j = 0; j < gh; j++) {
+      for (let i = 0; i < gw; i++) {
+        const k = j * gw + i;
+        if (!ins[k]) { out[k] = 0; continue; }
+        if (bin[k]) { out[k] = 1; continue; }      /* 暗格只增不减：绝不吃暗区 */
+        let litNb = 0;                              /* 亮格：数「亮」邻居 */
+        for (let dj = -1; dj <= 1 && !litNb; dj++) {
+          const jj = j + dj;
+          if (jj < 0 || jj >= gh) continue;
+          for (let di = -1; di <= 1; di++) {
+            if (di === 0 && dj === 0) continue;
+            const ii = i + di;
+            if (ii < 0 || ii >= gw) continue;
+            const q = jj * gw + ii;
+            if (ins[q] && !bin[q]) { litNb = 1; break; }
+          }
+        }
+        out[k] = litNb ? 0 : 1;                     /* 一个亮邻居都没有 → 孤立噪点，删 */
+      }
+    }
+    bin = out;
+  }
+
+  const c = document.createElement('canvas');
+  c.width = gw; c.height = gh;
+  const cx2 = c.getContext('2d');
+  const img = cx2.createImageData(gw, gh);
+  /* 边缘亮线 / 内部淡染的不透明度都乘 reveal：光才出发（reveal≈0）时
+     暗区完全不可见，随光扫开平滑显形，杜绝「小光源+一大圈死暗」。 */
+  const aEdge = Math.round(240 * reveal), aFill = Math.round(18 * reveal);
+  /* HUD 报的暗格数必须跟画出来的对上：投票会把孤立暗格抹掉，
+     用投票后的 bin 重数一遍，别让面板说 2 格、画面上一格没有。 */
+  dn2 = 0;
+  for (let i = 0; i < gw * gh; i++) if (ins[i] && bin[i]) dn2++;
+  for (let j = 0; j < gh; j++) {
+    /* ImageData 的 row 0 在画布**顶部**，而格网的 j 是「世界 y 从下往上」
+       数的（j=0 在最下面，j=gh-1 在最上面）。直接按 j 写，整张掩膜就
+       上下镜像：彭罗斯、椭圆、圆这些上下对称的房间看不出问题，**一放
+       障碍/换成正三角这类不对称几何立刻原形毕露** —— 用户报的
+       「下面两个袋明明有光线进去了，却还显示暗区」，就是上面那片暗区
+       被镜像画到了下面。曝光图（dens 用 (FGY-1-j)）本来就这么翻，掩膜漏了。 */
+    const orow = (gh - 1 - j) * gw;
+    for (let i = 0; i < gw; i++) {
+      const k2 = j * gw + i, o = (orow + i) << 2;
+      if (!ins[k2]) { img.data[o + 3] = 0; continue; }
+      if (bin[k2]) {
+        let edge = 0;
+        for (let d = 0; d < 4 && !edge; d++) {
+          const ii = i + (d === 0 ? 1 : d === 1 ? -1 : 0);
+          const jj = j + (d === 2 ? 1 : d === 3 ? -1 : 0);
+          if (ii < 0 || ii >= gw || jj < 0 || jj >= gh) continue;
+          const n2 = jj * gw + ii;
+          if (ins[n2] && !bin[n2]) edge = 1;
+        }
+        if (edge) {
+          img.data[o] = 84; img.data[o + 1] = 224; img.data[o + 2] = 206; img.data[o + 3] = aEdge;
+        } else {
+          img.data[o] = 70; img.data[o + 1] = 186; img.data[o + 2] = 172; img.data[o + 3] = aFill;
+        }
+      }
+    }
+  }
+  cx2.putImageData(img, 0, 0);
+  maskCanvas = { c, gx0, gy0, cell, gw, gh };
+  maskStats = { dark: dn2, room };
+  maskVer++;           /* 同一场景重算时尺寸可能一样，得用版本号逼缓存重画 */
+  markDirty();         /* 掩膜是异步算完的 */
+  updateHud();
+}
+
+
+/* 掩膜网格的「房内」判据。与 pointInRoom **逐格同构**：
+   一行一行扫，先按外框的偶奇规则把「墙内」的格子填 1，再把每个障碍环
+   内部的格子挖成 0。墙、障碍分开算 —— 混在一起算偶奇的话，障碍压墙时
+   突到墙外的那一截会被判成房内，掩膜就在墙外糊一块暗区（用户报的
+   「暗区点出现在小形状里面」，2026-10-20 实测矩形贴上袋 169 格幻影）。
+   重合交点（障碍压墙、共用顶点）排序后天然相邻，区间为空，无害。 */
+function insideGrid2(gw, gh, gx0, gy0, cell) {
+  const out = new Uint8Array(gw * gh);
+  const xs = [];
+  const fill = (E, v, y, j) => {
+    xs.length = 0;
+    for (let e = 0; e < E.length; e += 4) {
+      const y1 = E[e + 1], y2 = E[e + 3];
+      if ((y1 > y) !== (y2 > y)) {
+        const x1 = E[e], x2 = E[e + 2];
+        xs.push(x1 + (y - y1) * (x2 - x1) / (y2 - y1));
+      }
+    }
+    if (xs.length < 2) return;
+    xs.sort((a, b) => a - b);
+    for (let i = 0; i + 1 < xs.length; i += 2) {
+      let ia = Math.ceil((xs[i] - gx0) / cell - 0.5);
+      let ib = Math.floor((xs[i + 1] - gx0) / cell - 0.5);
+      if (ia < 0) ia = 0;
+      if (ib >= gw) ib = gw - 1;
+      for (let ii = ia; ii <= ib; ii++) out[j * gw + ii] = v;
+    }
+  };
+  for (let j = 0; j < gh; j++) {
+    const y = gy0 + (j + 0.5) * cell;
+    fill(WALL_EDGES, 1, y, j);
+    for (let g = 0; g < OBS_EDGES.length; g++) fill(OBS_EDGES[g], 0, y, j);
+  }
+  return out;
+}
+
+function paintMask() {
+  if (!S.mask || !maskCanvas) return;
+  const { c, gx0, gy0, cell, gw, gh } = maskCanvas;
+  ctx.save();
+  ctx.globalAlpha = 0.85;
+  ctx.imageSmoothingEnabled = true;
+  ctx.drawImage(c, OX + gx0 * K, OY - (gy0 + gh * cell) * K, gw * cell * K, gh * cell * K);
+  ctx.restore();
+}
+
+/* ── 合成 ── */
+/* ═════════════════ 渲染端：Worker 或主线程回退 ═════════════════
+   R.ok 为真时，拖尾描线、密度累积、曝光图渲染全在渲染 Worker 里，
+   主线程每帧只剩最后一层合成（几次全屏 drawImage）。
+   OffscreenCanvas / Worker 起不来就掉回主线程原路径，画面一模一样。 */
+/* 渲染方式：worker（默认，描线在后台线程）/ main（全部在页面线程画）。
+   main 是给「某些显卡驱动上跨线程搬画布会周期性卡死」的情况准备的退路：
+   页面自己画虽然多占一个核，但完全不碰跨线程提交。 */
+const RENDER_MODE = (() => {
+  const q = new URLSearchParams(location.search).get('render');
+  if (q === 'main' || q === 'worker') return q;
+  try {
+    const s = localStorage.getItem('pr.render');
+    if (s === 'main' || s === 'worker') return s;
+  } catch (e) {}
+  return 'worker';
+})();
+
+const R = {
+  ok: false, w: null, state: 0, stride: 1, budget: 6000, ms: 0,
+  init() {
+    try {
+      const src = document.getElementById('render-kernel');
+      if (typeof OffscreenCanvas === 'undefined' || !src
+        || typeof HTMLCanvasElement.prototype.transferControlToOffscreen !== 'function') {
+        R.state = 3; return;
+      }
+      /* 先本地编译一遍内核源码再起 worker。语法错如果留到 worker 里报，
+         是异步的 onerror —— 那时两张画布已经 transfer 出去、主线程再也画不了
+         它们，画面会静默变空白（2026-10-20 真踩到：注释里多留了一个块注释
+         结束符，页面照开、只是整块画面空白）。
+         new Function 只解析不执行，几十微秒，换掉一条静默失效路径。 */
+      try { new Function(src.textContent); }
+      catch (e) { R.state = 3; return; }
+      const url = URL.createObjectURL(new Blob([src.textContent], { type: 'text/javascript' }));
+      const w = new Worker(url);
+      w.onmessage = ev => {
+        const d = ev.data;
+        if (d && d.t === 'st') { R.ms = d.ms; R.stride = d.stride; R.budget = d.budget; }
+      };
+      w.onerror = () => {
+        R.ok = false; R.state = 3;
+        /* worker 中途死掉（运行期异常/内存）时，两张画布已经在它手里了：
+           只翻标志的话主线程会继续对着一块没人画的空画布合成，画面静默变白。
+           把全局引用抢回原画布，再重排一次，主线程路径立刻接手。 */
+        try {
+          trail = tctx.canvas;
+          if (fctx && fctx.canvas) fieldCanvas = fctx.canvas;
+          resize();
+        } catch (e) {}
+      };
+      /* 关键：transferControlToOffscreen 只对**从未 getContext 过**的 canvas
+         成立，页面里那两张早就在顶层取过 2d context，直接转会抛
+         InvalidStateError（还不报出来，画面就悄悄退回单线程了）。
+         所以另起两张干净画布转出去，再把全局引用指过去 ——
+         后面的 drawImage(trail) / drawImage(fieldCanvas) 不用改一个字。 */
+      const t2 = document.createElement('canvas');
+      const f2 = document.createElement('canvas');
+      const tt = t2.transferControlToOffscreen();
+      const ff = f2.transferControlToOffscreen();
+      w.postMessage({ t: 'init', trail: tt, field: ff, LUT: FIELD_LUT, ng: TUNE.ng }, [tt, ff]);
+      trail = t2; fieldCanvas = f2;
+      R.w = w; R.ok = true; R.state = 2;
+    } catch (e) { R.ok = false; R.state = 3; }
+  },
+  size() {
+    if (!R.ok) return;
+    R.w.postMessage({ t: 'size', W, H, DPR, OX, OY, K, GX0, GY0, GC, FGX, FGY });
+  },
+  /* 路径数据拷一份给渲染 worker。用 transfer 零拷贝（主线程自己那份还在）。 */
+  sync() {
+    if (!R.ok || !paths.length) return;
+    const n = paths.length, kb = S.kbEff || 0;
+    const vs = kb + 2, cLen = Math.floor(kb / COARSE) + 2;
+    const VG = new Float32Array(n * vs * 2), CG = new Float64Array(n * cLen);
+    const NG = new Int32Array(n), TG = new Float64Array(n);
+    for (let i = 0; i < n; i++) {
+      const P = paths[i];
+      VG.set(P.V, i * vs * 2); CG.set(P.cum, i * cLen);
+      NG[i] = P.n; TG[i] = P.total;
+    }
+    R.w.postMessage({ t: 'paths', V: VG, C: CG, N: NG, T: TG, rays: n, vs, cLen, maxDist },
+      [VG.buffer, CG.buffer, NG.buffer, TG.buffer]);
+  },
+  frame(t0, t1, rgb, a, decay, t01) {
+    if (R.ok) {
+      R.w.postMessage({ t: 'frame', t0, t1, r: rgb[0], g: rgb[1], b: rgb[2], a, decay, t01 });
+      return;
+    }
+    const t = performance.now();
+    /* 与 worker 同序：先衰减旧墨，再画本帧新墨（理由见 worker 里 m.t==='frame'）。 */
+    const st = decayStepMain(decay);
+    if (st > 0) trailFade(st);
+    drawTrailSegment(t0, t1);
+    adaptDrawBudget(performance.now() - t);
+  },
+  fade(a, t01) {
+    if (R.ok) { R.w.postMessage({ t: 'fade', a, t01 }); return; }
+    trailFade(a);
+  },
+  /* 只清拖尾画布，不动密度场：终态淡出结束后用它露曝光图
+     （reset 会把 dens 一起清零，曝光图——这个实验真正的结论——
+     就跟着没了）。 */
+  wipe(t01) {
+    fadeFMain = 1;
+    if (R.ok) { R.w.postMessage({ t: 'wipe', t01 }); return; }
+    tctx.setTransform(1, 0, 0, 1, 0, 0);
+    tctx.clearRect(0, 0, W, H);
+    renderField();
+  },
+  reset(hard, t01, keepDens) {
+    fadeFMain = 1;
+    if (R.ok) { R.w.postMessage({ t: 'reset', hard, t01, keep: keepDens ? 1 : 0 }); return; }
+    tctx.setTransform(1, 0, 0, 1, 0, 0);
+    tctx.clearRect(0, 0, W, H);
+    if (dens && !keepDens) dens.fill(0);
+    if (hard) fRef = 0;
+    renderField();
+  },
+};
+function trailFade(a) {
+  tctx.globalCompositeOperation = 'destination-out';
+  /* 护栏与 worker 的 decayStep 完全同式：只挡非法值（min 1）。以前这里
+     无条件压 0.45，而 worker 侧是 0.9 —— d·spf ∈ (0.45,0.9] 这一段两条
+     渲染路径就分家，以 d·spf=0.65 测 e 折叠寿命，main 长 1.76 倍。
+     现在两边都改成「先抹后画」，顺序保证新墨不被本帧抹掉，
+     所以两边都不需要额外的常数钳位。 */
+  tctx.fillStyle = 'rgba(0,0,0,' + Math.min(1, a).toFixed(4) + ')';
+  tctx.fillRect(0, 0, W, H);
+  tctx.globalCompositeOperation = 'source-over';
+}
+/* 主线程版的累积淡出（与渲染 worker 里的 decayStep 同口径）：
+   逐帧的小衰减在 8 位 alpha 上会卡住，攒够 15% 再抹一次。 */
+let fadeFMain = 1;
+function decayStepMain(d) {
+  if (!(d > 0)) return 0;
+  fadeFMain = Math.max(0, fadeFMain * (1 - Math.min(1, d)));   /* 与渲染 worker 的 decayStep 同一式 */
+  if (fadeFMain > 0.88) return 0;
+  const a = 1 - fadeFMain;
+  fadeFMain = 1;
+  return a;
+}
+
+/* 背景 + 暗区掩膜 + 曝光图这三层互相独立、且都只在几何或场更新时才变，
+   却原来每帧各缩放绘制一次到主画布 —— 实测这三下加上辉光共 7 次全屏
+   drawImage，吃掉 11ms/帧。合成进一张缓存后，每帧只剩一次全屏拷贝，
+   缓存只在 renderField（每 4 帧）或掩膜更新时重建。 */
+let bgL = null, bgLx = null, bgLstamp = '';
+let fieldVer = 0, maskVer = 0;
+function bgLayer() {
+  const mc = maskCanvas;
+  /* 渲染 worker 模式下曝光图是 worker 自己画的、每 4 帧一变，
+     不能进这层缓存（否则缓存每 4 帧重建一次，白省）。 */
+  const stamp = W + '|' + H + '|' + K.toFixed(6) + '|' + OX.toFixed(2) + '|' + OY.toFixed(2)
+    + '|' + (R.ok ? -1 : fieldVer) + '|' + maskVer + '|' + (S.mask ? 1 : 0);
+  if (bgL && bgLstamp === stamp) return bgL;
+  if (!bgL) { bgL = document.createElement('canvas'); bgLx = bgL.getContext('2d'); }
+  if (bgL.width !== W || bgL.height !== H) { bgL.width = W; bgL.height = H; }
+  const x = bgLx;
+  x.setTransform(1, 0, 0, 1, 0, 0);
+  x.globalCompositeOperation = 'source-over';
+  x.globalAlpha = 1;
+  x.imageSmoothingEnabled = true;
+  if (!bg) bg = makeBg();
+  x.drawImage(bg, 0, 0);
+  if (S.mask && mc) {
+    x.save();
+    x.globalAlpha = 0.85;
+    x.drawImage(mc.c, OX + mc.gx0 * K, OY - (mc.gy0 + mc.gh * mc.cell) * K,
+      mc.gw * mc.cell * K, mc.gh * mc.cell * K);
+    x.restore();
+  }
+  if (R.ok) { bgLstamp = stamp; return bgL; }
+  x.globalCompositeOperation = 'lighter';
+  x.globalAlpha = 0.95;
+  x.drawImage(fieldCanvas, OX + GX0 * K, OY - (GY0 + FGY * GC) * K, FGX * GC * K, FGY * GC * K);
+  x.globalAlpha = 1;
+  x.globalCompositeOperation = 'source-over';
+  bgLstamp = stamp;
+  return bgL;
+}
+
+function composite() {
+  ctx.setTransform(1, 0, 0, 1, 0, 0);
+  ctx.globalCompositeOperation = 'source-over';
+  ctx.globalAlpha = 1;
+  ctx.drawImage(bgLayer(), 0, 0);
+
+  /* 渲染 worker 模式下曝光图不在缓存层里，单独叠一次。 */
+  if (R.ok) {
+    ctx.globalCompositeOperation = 'lighter';
+    ctx.imageSmoothingEnabled = true;
+    ctx.globalAlpha = 0.95;
+    ctx.drawImage(fieldCanvas, OX + GX0 * K, OY - (GY0 + FGY * GC) * K, FGX * GC * K, FGY * GC * K);
+    ctx.globalAlpha = 1;
+    ctx.globalCompositeOperation = 'source-over';
+  }
+
+  ctx.globalCompositeOperation = 'source-over';
+  ctx.drawImage(trail, 0, 0);
+
+  /* 辉光：纯装饰，却要多两次全屏缩放合成。降档 ≥1 直接整层跳过。 */
+  if (perfTier < 1) {
+    g2.clearRect(0, 0, glow2.width, glow2.height);
+    g2.drawImage(trail, 0, 0, glow2.width, glow2.height);
+    g1.clearRect(0, 0, glow1.width, glow1.height);
+    g1.drawImage(trail, 0, 0, glow1.width, glow1.height);
+
+    const gk = Math.min(1, Math.sqrt(90 / Math.max(1, S.rays)));
+    gm.globalCompositeOperation = 'source-over';
+    gm.globalAlpha = 1;
+    gm.clearRect(0, 0, glowMix.width, glowMix.height);
+    gm.drawImage(glow1, 0, 0);
+    gm.globalCompositeOperation = 'lighter';
+    gm.globalAlpha = 0.88;            /* 0.030 / 0.034：两层原本的强度比 */
+    gm.drawImage(glow2, 0, 0, glowMix.width, glowMix.height);
+    gm.globalAlpha = 1;
+    gm.globalCompositeOperation = 'source-over';
+
+    ctx.globalCompositeOperation = 'lighter';
+    ctx.globalAlpha = 0.034 * gk;
+    ctx.drawImage(glowMix, 0, 0, W, H);
+    ctx.globalAlpha = 1;
+  }
+
+  ctx.globalCompositeOperation = 'source-over';
+  paintWalls(0);
+  ctx.globalCompositeOperation = 'lighter';
+  paintWalls(1);
+  ctx.globalCompositeOperation = 'source-over';
+  paintFoci();
+  paintHeads();
+  paintSource(performance.now());
+  if (S.scene === 'custom') paintHandles();
+}
+
+/* ═══════════════════════════ 相图 ═══════════════════════════ */
+const phCanvas = document.getElementById('phCanvas');
+const phCtx = phCanvas.getContext('2d');
+const PHGX = 96, PHGY = 48;
+let phGrid = new Uint32Array(PHGX * PHGY);
+let phStats = null;
+
+function analyzePhase() {
+  phGrid.fill(0);
+  /* PTS 是三元组 [撞墙位置 s, |入射角余弦|, 路径弧长]。
+     第三个数是给「跟着播放进度长出来」用的：只统计已经走过的撞墙点，
+     播到一半就只画前半段相图，跟画面上那批光严丝合缝。
+     以前这里不看进度，一扫就扫全部 —— 于是相图一出来就是终态答案
+     （31,200 次碰撞固定不动），光才出发它已经把结论定死了。 */
+  const total = (PTS.length / 3) | 0;
+  const T = Math.min(S.T, maxDist);
+  let n = 0;
+  for (let i = 0; i < total; i++) {
+    if (PTS[i * 3 + 2] > T) continue;
+    const s = PTS[i * 3], p = PTS[i * 3 + 1];
+    n++;
+    const x = Math.min(PHGX - 1, (s * PHGX) | 0);
+    const y = Math.min(PHGY - 1, ((1 - p) * PHGY) | 0);
+    phGrid[y * PHGX + x]++;
+  }
+  let used = 0, hits = 0;
+  for (let i = 0; i < phGrid.length; i++) if (phGrid[i]) { used++; hits += phGrid[i]; }
+  if (used === 0) { phStats = null; return; }
+
+  let stdSum = 0, stdN = 0;
+  for (let x = 0; x < PHGX; x++) {
+    let m = 0, c = 0;
+    for (let y = 0; y < PHGY; y++) if (phGrid[y * PHGX + x]) { m += 1 - (y + 0.5) / PHGY; c++; }
+    if (c < 2) continue;
+    m /= c;
+    let v = 0;
+    for (let y = 0; y < PHGY; y++) if (phGrid[y * PHGX + x]) { const d = 1 - (y + 0.5) / PHGY - m; v += d * d; }
+    stdSum += Math.sqrt(v / c); stdN++;
+  }
+  phStats = {
+    n, total, rays: S.rays, cover: 100 * used / phGrid.length,
+    colStd: stdN ? stdSum / stdN : 0,
+    /* 百分比的两个原始数：分子（踩到的格）、分母（总格数）。
+       面板要把它们写出来，不然「可达 30%」没人知道分母是啥。 */
+    used, cells: phGrid.length,
+  };
+}
+
+function phaseClass(a) {
+  if (!a) return null;
+  /* 「三类」要两个条件同时成立才说得出口：
+     ①点数 ≥ 1.5 倍相格数（96×48 = 4,608 → 6,912）；
+     ②光线 ≥ 240 道。
+     ②比①更要紧：覆盖率很大程度由**道数**决定 —— 60 条轨迹在 96×48 的相图里
+     只是 60 条一维曲线，再加点也填不满二维。实测同一套内核：
+       rect   60 道 → 28.3% ／ 240 道 → 68.5% ／ 960 道 → 93.2%
+       sinai  60 道 → 26.5% ／ 240 道 → 66.9% ／ 960 道 → 94.4%
+       tri    60 道 → 24.3% ／ 240 道 → 70.3%
+     60 道时会把这些遍历房间全判成「分层带」，然后写「带间是真空白、
+     轨迹进不了那部分相空间」—— 对一个本来就遍历的房间，这是假结论。
+     240 道时两类才分得开：混沌 65~70%，非混沌 20~46%（圆 2%、椭圆 25%、
+     彭罗斯 31%、蘑菇 46%），60% 这条线正好切在中间。 */
+  if (!a.cells || a.n < 1.5 * a.cells || !(a.rays >= 240)) return null;
+  if (a.cover < 8) return 'line';
+  if (a.cover < 25) return a.colStd < 0.06 ? 'line' : 'band';
+  if (a.cover < 60) return 'band';
+  return 'fill';
+}
+
+function drawPhase() {
+  const w = phCanvas.clientWidth, h = phCanvas.clientHeight;
+  if (!w) return;
+  const d = Math.min(window.devicePixelRatio || 1, 2);
+  if (phCanvas.width !== Math.round(w * d)) {
+    phCanvas.width = Math.round(w * d);
+    phCanvas.height = Math.round(h * d);
+  }
+  phCtx.setTransform(d, 0, 0, d, 0, 0);
+  phCtx.clearRect(0, 0, w, h);
+
+  phCtx.strokeStyle = 'rgba(255,255,255,.05)';
+  phCtx.lineWidth = 1;
+  phCtx.beginPath();
+  for (let i = 1; i < 4; i++) {
+    const x = w * i / 4;
+    phCtx.moveTo(x, 0); phCtx.lineTo(x, h);
+  }
+  phCtx.moveTo(0, h / 2); phCtx.lineTo(w, h / 2);
+  phCtx.stroke();
+
+  const cw = w / PHGX, chh = h / PHGY;
+  /* 参考密度取 98 分位：有少数格子被反复命中原子上百次，
+     直接按最大值归一的话其余格子全被压成同一个暗色，结构就看不出来了。 */
+  const nz = [];
+  for (let i = 0; i < phGrid.length; i++) if (phGrid[i]) nz.push(phGrid[i]);
+  nz.sort((x, y) => x - y);
+  const ref = nz.length ? nz[Math.min(nz.length - 1, (nz.length * 0.98) | 0)] : 1;
+  for (let j = 0; j < PHGY; j++) {
+    for (let i = 0; i < PHGX; i++) {
+      const c = phGrid[j * PHGX + i];
+      if (!c) continue;
+      const a = 0.06 + 0.92 * Math.pow(Math.min(1, c / ref), 0.45);
+      phCtx.fillStyle = `rgba(255,201,138,${a.toFixed(3)})`;
+      phCtx.fillRect(i * cw, j * chh, Math.ceil(cw), Math.ceil(chh));
+    }
+  }
+  phCtx.fillStyle = 'rgba(255,255,255,.28)';
+  phCtx.font = '10px -apple-system,system-ui,sans-serif';
+  phCtx.fillText('s', w - 9, h - 3);
+  phCtx.fillText('p', 3, 10);
+}
+
+/* ── 三个标签：既是图例，也是释义开关 ──
+   以前它们是纯装饰：只有本场景所属的那类会亮，点了没反应，
+   但圆角底色的样子跟按钮一模一样，看着就让人想点。
+   现在点一下 → 下方文字区换成这一类的定义；再点同一个 → 回到本场景判读。 */
+const LG_IDS = ['lg-line', 'lg-band', 'lg-fill'];
+/* 三类判读的释义。做成取值函数而不是字符串常量 —— 切语言时 PH_INFO 这个
+   对象本身不用重建，取到的就是新语言的文字。 */
+const PH_INFO = {
+  line: { t: () => t('ph.line'), d: () => t('ph.lineD') },
+  band: { t: () => t('ph.band'), d: () => t('ph.bandD') },
+  fill: { t: () => t('ph.fill'), d: () => t('ph.fillD') }
+};
+let phInfoSel = null;     // 正在看释义的类别；null = 显示本场景判读
+
+function paintVerdict() {
+  const box = document.getElementById('phVerdict');
+  const cls = phaseClass(phStats);
+  let html;
+
+  if (phInfoSel) {
+    const info = PH_INFO[phInfoSel];
+    /* cls 为 null = 样本还不够定性，这时候说「本场景不属于这一类」是错的
+       （不是不属于，是还没测出来）。 */
+    const badge = cls === null ? t('vd.insuff')
+      : cls === phInfoSel ? t('vd.isThis') : t('vd.notThis');
+    html = badge + info.d();
+  } else if (!phStats || phStats.n < 500) {
+    /* 播放早期相图本来就只长了一点点，写「还没攒够」会被当成卡住。
+       直接报进度和已撞次数，让人看出它是跟着光走的。 */
+    const pct = maxDist ? Math.round(100 * Math.min(S.T, maxDist) / maxDist) : 0;
+    const got = phStats ? phStats.n.toLocaleString('en-US') : '0';
+    html = t('vd.growing', { pct, got });
+  } else {
+    /* 覆盖 0.4% 写成 0% 跟「一格都没踩到」长得一样，而下面正写着「踩到 19 格」。 */
+    const cv = phStats.cover < 1 ? '&lt;1' : phStats.cover.toFixed(0);
+    const usedTxt = phStats.used.toLocaleString('en-US');
+    const cellsTxt = phStats.cells.toLocaleString('en-US');
+    const nTxt = phStats.n.toLocaleString('en-US');
+    const totTxt = phStats.total.toLocaleString('en-US');
+    /* 「86%」到底是什么的分母，必须写出来：
+       分子＝被撞到过的相格数，分母＝相图被切成的总格数，
+       样本＝**到目前为止**撞过的次数。不是房间面积，也不是终值。
+       这句还得明说跟左下角「暗区」不是一回事 —— 一个是相空间格子，
+       一个是房间面积，两个数本来就不该相等（实测 Sinai 960×1000：
+       相空间 86%、房间暗区 0%，完全自洽，被当成 bug 报过）。 */
+    const head = t('vd.cover', { cv, cells: cellsTxt, used: usedTxt });
+    const tail = t('vd.sample', { n: nTxt, tot: totTxt });
+    const warn = phStats.n < 1.5 * phStats.cells ? t('vd.warn', { n: nTxt }) : '';
+    if (cls === null) {
+      const why = phStats.rays < 240 ? t('vd.whyRays', { rays: phStats.rays }) : t('vd.whyFew');
+      html = warn + head + why + tail;
+    } else if (cls === 'line') {
+      html = warn + head + t('vd.line') + tail;
+    } else if (cls === 'band') {
+      html = warn + head + t('vd.band') + tail;
+    } else {
+      html = warn + head + t('vd.fill') + tail;
+    }
+  }
+
+  /* 播放中每 30 帧重算一次判读。内容没变就别重写 innerHTML——
+     否则用户想选中这段文字复制，每半秒就被抹一次。 */
+  if (box.dataset.sig === html) return;
+  box.dataset.sig = html;
+  box.innerHTML = html;
+}
+
+function updateVerdict() {
+  const cls = phaseClass(phStats);
+  for (const id of LG_IDS) {
+    const el = document.getElementById(id);
+    el.classList.toggle('on', id === 'lg-' + cls);
+    el.classList.toggle('sel', id === 'lg-' + phInfoSel);
+  }
+  /* 这两个数是**相点个数**，不是碰撞次数：每 phPer 次撞墙才采 1 个点，
+     而且只记撞在外框上的那几次（障碍物上没有 s）。
+     以前写「N / M 次碰撞」，看着像「一万次碰撞只算了两千次」，
+     其实是抽样，不是漏算 —— 分母也是相点上限，不是碰撞总数。 */
+  const phPer = Math.max(1, Math.ceil((S.kbEff || S.bounces) / 65));
+  const st = document.getElementById('phStat');
+  st.textContent = phStats
+    ? t('ph.stat', { n: phStats.n.toLocaleString('en-US'), tot: phStats.total.toLocaleString('en-US') })
+    : t('ph.sampling');
+  st.title = t('ph.statTip', { n: phPer });
+  paintVerdict();
+}
+
+/* 标签点击 / 键盘回车。选中的标签只影响文字区，不动相图本身。 */
+for (const id of LG_IDS) {
+  const el = document.getElementById(id);
+  const key = id.slice(3);           // lg-line → line
+  const pick = () => {
+    phInfoSel = (phInfoSel === key) ? null : key;
+    /* 相图还在采样时点标签也要能看释义，所以这里不依赖 updateVerdict 的早退。 */
+    for (const other of LG_IDS) {
+      document.getElementById(other).classList.toggle('sel', other === 'lg-' + phInfoSel);
+    }
+    paintVerdict();
+  };
+  el.addEventListener('click', pick);
+  el.addEventListener('keydown', e => {
+    if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); pick(); }
+  });
+}
+
+/* ═══════════════════════════ 数值显示 ═══════════════════════════ */
+const UNIT_KM = 2.5e-6;
+const UNITS_PER_KM = 1 / UNIT_KM;
+const C_KMPS = 299792.458;
+
+const SUP = { '-': '⁻', 0: '⁰', 1: '¹', 2: '²', 3: '³', 4: '⁴', 5: '⁵', 6: '⁶', 7: '⁷', 8: '⁸', 9: '⁹' };
+function sci(x, dg = 2) {
+  if (!isFinite(x) || x <= 0) return '—';
+  let e = Math.floor(Math.log10(x));
+  let m = x / Math.pow(10, e);
+  if (m >= 10 - 0.5 * Math.pow(10, -dg)) { e += 1; m /= 10; }   /* 9.97 → 10.0 要进位成 1.0×10¹ */
+  const es = String(e).split('').map(c => SUP[c]).join('');
+  return `${m.toFixed(dg)}×10${es}`;
+}
+function trimNum(v, dg) {
+  if (!isFinite(v)) return '—';
+  let s = v.toFixed(dg);
+  /* 只有带小数点的才削尾零。不然 60 会变成 6、1000 变成 1。 */
+  if (s.indexOf('.') >= 0) s = s.replace(/\.?0+$/, '');
+  return s || '0';
+}
+function fmtSpeed(v) {
+  if (v >= 1e4) return [sci(v, 2), 'km/s'];
+  if (v >= 1) return [trimNum(v, v < 10 ? 2 : v < 100 ? 1 : 0), 'km/s'];
+  if (v >= 1e-3) return [trimNum(v * 1e3, v * 1e3 < 10 ? 1 : 0), 'm/s'];
+  if (v >= 1e-5) return [trimNum(v * 1e5, v * 1e5 < 10 ? 1 : 0), 'cm/s'];
+  if (v >= 1e-6) return [trimNum(v * 1e6, v * 1e6 < 10 ? 1 : 0), 'mm/s'];
+  return [trimNum(v * 1e9, v * 1e9 < 10 ? 1 : 0), 'µm/s'];
+}
+function fmtDur(s) {
+  if (!isFinite(s)) return '—';
+  if (s < 1e-3) return trimNum(s * 1e6, 1) + t('u.us');
+  if (s < 1) return trimNum(s * 1e3, 0) + t('u.ms');
+  if (s < 90) return trimNum(s, 1) + t('u.sec');
+  if (s < 5400) return trimNum(s / 60, 1) + t('u.min');
+  if (s < 172800) return trimNum(s / 3600, 1) + t('u.hour');
+  return trimNum(s / 86400, 1) + t('u.day');
+}
+function fmtLen(km) {
+  if (km >= 1) return trimNum(km, 2) + ' km';
+  const m = km * 1000;
+  if (m >= 1) return trimNum(m, m < 10 ? 2 : 1) + ' m';
+  return trimNum(m * 100, 1) + ' cm';
+}
+const $ = id => document.getElementById(id);
+
+/* HUD 专用：有效位数随量级走，保证一直在变。 */
+function fmtKmShort(km) {
+  if (!isFinite(km)) return '—';
+  if (km >= 100) return trimNum(km, 1);
+  if (km >= 10) return trimNum(km, 2);
+  if (km >= 1) return trimNum(km, 3);
+  return trimNum(km, 4);
+}
+
+function updateSpeedUI() {
+  const v = S.speed;
+  const [num, unit] = fmtSpeed(v);
+  $('v-speed').textContent = num;
+  $('v-speed-u').textContent = unit;
+  const rel = v / C_KMPS;
+  $('v-speed-c').textContent = rel >= 0.9995 ? t('spd.eqC')
+    : rel >= 0.005 ? trimNum(rel * 100, rel * 100 < 1 ? 2 : 1) + '% c'
+      : t('spd.oneOver', { v: sci(1 / rel, 1) });
+
+  if (maxDist > 0) {
+    const km = maxDist * UNIT_KM;
+    const run = runKmps();                    // 画面实际推进速度 km/s
+    const mul = v > 0 ? run / v : 1;
+    const runSec = run > 0 ? km / run : Infinity;
+    /* 这里报的是**最长那条路径**的总长（全场以它为准播到终点），
+       不是所有光线路程之和 —— 别写「总路程」，那是另一个数。 */
+    $('v-run').textContent = t('spd.longest', { len: fmtLen(km) });
+    /* 光速走两公里是微秒级，写「0.000002 秒」没意义，直接说一瞬。 */
+    $('v-time').textContent = t('spd.full', { dur: runSec < 0.5 ? t('spd.instant') : fmtDur(runSec) });
+
+    /* 屏幕像素速度必须用播放速率算。以前这里拿面板速度直接乘比例，
+       显示「每秒前进 12 px」，实际画面是 13000 px/s —— 纯安慰剂，
+       也是「明明选了 2 cm/s 却快得飞」的根源之一。 */
+    /* stage 尺寸还是 0（首次布局前）时 K=0，写出来就是「每 1e9 秒前进 1 px」。
+       等尺寸算好再写。 */
+    if (K > 0) {
+      const pxs = run * UNITS_PER_KM * K / DPR;
+      const scrW = W / DPR;
+      $('v-px').textContent = pxs >= scrW * 20 ? t('spd.flash')
+        : pxs >= scrW ? t('spd.screenW', { n: trimNum(pxs / scrW, 1) })
+          : pxs >= 1 ? t('spd.px', { n: trimNum(pxs, pxs < 10 ? 1 : 0) })
+            : t('spd.secPerPx', { n: trimNum(1 / Math.max(pxs, 1e-9), 1) });
+    }
+
+    /* 用真·平均自由程（总路程 ÷ 总段数）。原来用 avgSeg = 最长轨迹 ÷ 最少段数，
+       那是上界，报出来的反弹次数会系统性偏慢。 */
+    const bps = (run * UNITS_PER_KM) / Math.max(1e-9, avgSegTrue || avgSeg);
+    const mulTxt = mul >= 1000 ? sci(mul, 1) : trimNum(mul, mul < 10 ? 1 : 0);
+    /* 少于每秒一次时别写「0.1 次/秒」——直接给「每 8.3 秒 1 次」，
+       慢到什么程度是能直接读出来的。 */
+    const bpsTxt = bps >= 1
+      ? t('spd.bps', { n: bps >= 1000 ? sci(bps, 1) : trimNum(bps, bps < 10 ? 1 : 0) })
+      : t('spd.spb', { n: trimNum(1 / bps, 1 / bps < 10 ? 1 : 0) });
+    $('v-slowrow').style.display = '';
+    $('v-slow').textContent = t('spd.accel', { mul: mulTxt, bps: bpsTxt });
+  }
+}
+
+function updateBounceNote() {
+  const note = $('b-note');
+  if (!note) return;
+  const kb = S.kbEff || 0;
+  if (!kb || kb >= S.bounces) { note.style.display = 'none'; return; }
+  note.style.display = '';
+  note.textContent = (quickPreview ? t('bn.preview') : '')
+    + t('bn.body', {
+      cap: S.bounces.toLocaleString('en-US'), rays: S.rays,
+      tot: fmtBig(S.rays * S.bounces), kb: kb.toLocaleString('en-US'),
+      tot2: fmtBig(S.rays * kb),
+    });
+}
+
+/* 线程面板：写实测值，不写猜的值。
+   逻辑处理器数是浏览器报的（可能为反指纹故意报小），
+   实测速率和耗时才是这台机器的真话。 */
+function fmtRate(r) {
+  if (LANG === 'en') {
+    if (r >= 1e6) return (r / 1e6).toFixed(2) + 'M';
+    if (r >= 1e4) return (r / 1e3).toFixed(r >= 1e5 ? 0 : 1) + 'k';
+    return r.toFixed(0);
+  }
+  if (r >= 1e8) return (r / 1e8).toFixed(2) + ' 亿';
+  if (r >= 1e4) return (r / 1e4).toFixed(r >= 1e6 ? 0 : 1) + ' 万';
+  return r.toFixed(0);
+}
+/* 痕迹时长标签。全局一份 —— 滑杆拖动和切语言都调它，秒数只按画布同式
+   trailLifeSec 算，别在两处各推一个公式。 */
+function tailLabel() {
+  const secs = trailLifeSec(decayLam());
+  $('v-tail').textContent = S.tail.toFixed(2)
+    + (isFinite(secs)
+      ? ' · ' + (secs >= 100 ? Math.round(secs) : secs.toFixed(secs < 10 ? 1 : 0)) + t('u.sec')
+      : t('tail.resident'));
+}
+
+function updateThreadUI() {
+  const lab = $('v-thread'), note = $('t-note');
+  if (!lab) return;
+  const use = (TP.ok && TP.mode !== 'single') ? tpTarget() : 1;
+  lab.textContent = !TP.ok ? t('th.fallback')
+    : TP.mode === 'single' ? t('th.singleLab')
+      : TP.mode === 'manual' ? t('th.manualN', { n: use })
+        : t('th.autoN', { n: use });
+  if (!note) return;
+
+  /* 追踪中优先报进度 —— 满配要跑几百毫秒，不动会以为死了。 */
+  if (!S.ready && traceProg > 0 && traceProg < 1) {
+    note.textContent = t('th.tracing', { p: Math.round(traceProg * 100), n: use });
+    return;
+  }
+  const p = [t('th.cores', { n: HC })];
+  p.push(RENDER_MODE === 'main' ? t('th.renderMain') : t('th.renderWorker'));
+  if (TP.state === 0 || TP.state === 1) p.push(t('th.probing'));
+  else if (!TP.ok) p.push(t('th.noWorker'));
+  else if (TP.lastMs) {
+    const ms = TP.lastMs;
+    /* 报**实测**参与并行的条数（TP.lastN），不是面板当前设的值：
+       追踪途中改过设置的话，两个数会不一样。 */
+    p.push(t('th.last', { n: TP.lastN || use, ms: ms >= 1000 ? (ms / 1000).toFixed(2) + ' s' : ms.toFixed(0) + ' ms' })
+      + ' · ' + fmtRate(TP.lastRate) + t('u.rate'));
+  }
+  if (TP.calibrated && TP.pool.length) {
+    const fast = TP.pool.filter(s => s.alive && !s.small).length;
+    const slow = TP.pool.filter(s => s.alive && s.small).length;
+    p.push(slow ? t('th.mixed', { fast, slow }) : t('th.even'));
+  }
+  note.textContent = p.join(' · ');
+}
+
+function updateHud() {
+  $('h-rays').textContent = S.rays;
+  /* 分子/分母都用**实际**追踪的反射数：面板上按 2 万，封顶后只有 625，
+     写 2 万就是骗人。 */
+  $('h-max').textContent = (S.kbEff || S.bounces).toLocaleString('en-US');
+  let bi = 0;
+  for (let q = 0; q < paths.length; q++) {
+    const P = paths[q];
+    if (P.n > 1) {
+      /* 走到头就直接报「顶点数 - 1」。locate 在 s 恰好等于 total 时
+         落进最后一段，返回倒数第二个顶点索引（f=1），平均下来
+         1000 次会显示成 999 —— 看着像差一次没跑，其实是取整偏差。 */
+      const s = S.T < P.total ? S.T : P.total;
+      bi += (s >= P.total - 1e-9) ? (P.n - 1) : idxAt(P, s);
+    }
+  }
+  bi = paths.length ? Math.round(bi / paths.length) : 0;
+  $('h-bounce').textContent = bi.toLocaleString('en-US');
+  /* 路程要一直动：默认一屏约 1.3 km，走 1% 只有 13 m，
+     按两位小数写就是恒定「0.01」，看着像没动。 */
+  $('h-dist').textContent = fmtKmShort(S.T * UNIT_KM);
+  $('h-total').textContent = fmtKmShort(maxDist * UNIT_KM);
+  $('h-prog').textContent = (maxDist ? Math.round(100 * S.T / maxDist) : 0) + '%';
+  /* 暗区数值跟着当前光线参数走（掩膜与画面同一批光线），
+     括号里标出参数，免得「换个光线数暗区怎么变了」看着像 bug。 */
+  $('h-dark').textContent = maskStats.room
+    ? (100 * maskStats.dark / maskStats.room).toFixed(1) + '% (' + S.rays + '×' + (S.kbEff | 0) + ')'
+    : '—';
+  /* 照亮占比与暗区互补，读「照到多少」不用自己减。 */
+  $('h-lit').textContent = maskStats.room
+    ? (100 * (1 - maskStats.dark / maskStats.room)).toFixed(1) + '%'
+    : '—';
+  /* 速度写面板那个物理速度（跟滑杆一致），反弹写画面实际节奏。
+     两个数放在一起，「选了 2 cm/s 为什么快得飞」一眼能对出来。 */
+  const [vn, vu] = fmtSpeed(S.speed);
+  $('h-speed').textContent = vn + ' ' + vu;
+  const bps = (avgSegTrue > 0 && maxDist > 0) ? runKmps() * UNITS_PER_KM / avgSegTrue : 0;
+  $('h-bps').textContent = !(bps > 0) ? '—'
+    : bps >= 1e4 ? sci(bps, 1) + t('u.perSec')
+      : bps >= 1 ? trimNum(bps, bps < 10 ? 1 : 0) + t('u.perSec')
+        : t('hud.spb', { n: trimNum(1 / bps, 1) });
+  /* 帧率 + 抽样步长一起显示：速度拉高时每帧要画的段数暴涨，
+      程序会按帧时间自动抽稀（只画真实存在的段，绝不跨顶点抄近路），
+      不写出来的话用户会以为画面在偷工减料。 */
+  const fp = $('h-fps');
+  if (fp) {
+    const bits = [S.fps && S.playing ? Math.round(S.fps) + ' fps' : '—'];
+    /* 抽稀发生在渲染 worker 里时，主线程的 drawStride 一直是 1 ——
+       以前只读主线程那个，worker 模式抽稀了就一个字都不显示。 */
+    const strideNow = R.ok ? (R.stride || 1) : drawStride;
+    if (strideNow > 1) bits.push(t('hud.sample', { n: strideNow }));
+    if (perfTier > 0) bits.push(t('hud.tier', { n: perfTier }));
+    const hm = performance.memory ? performance.memory.usedJSHeapSize : 0;
+    if (hm) bits.push(Math.round(hm / 1048576) + 'M');
+    fp.textContent = bits.join(' · ');
+  }
+  /* 追踪期间每帧刷一次线程面板：满配要跑近一秒，不动会以为死了。 */
+  if (!S.ready) updateThreadUI();
+}
+
+/* ═══════════════════════ 暗区掩膜：实时灯 ═══════════════════════
+   暗区 = 「光到现在还到不了的地方」。灯不预计算终态——那等于把未来
+   的光提前画出来（画面才弹 20 次，掩膜已是 2 万次的答案），还白跑
+   一遍全路径采样（拉满追踪因此慢 6 倍）。改为跟随播放进度实时增量：
+   每帧只把 [上一帧, 本帧] 新走过的路段标进 liveLit，光弹到哪儿亮到
+   哪儿。数据完全来自主计算的路径副产品（paths），与画面同进度同光线。
+   呈现层：暗区不透明度按「播放进度」与「已照亮占比」双曲线取大平滑
+   淡入——光才出发时画面干净（没有「小光源+一大圈死暗」），光一铺开
+   立刻显形，稀疏场景（圆屋只照亮 4.8%）走到终态也一定看得见。 */
+
+/* 单段路径标记：把顶点 (ax,ay)→(bx,by) 扫过的格子点亮 */
+/* 超覆盖遍历（Amanatides–Woo DDA）：线段真正穿过的每一格都标上。
+   以前是「沿线段每 0.7 格撒一个采样点」——掠射段的穿格长度不到 0.7 格时
+   整格被跳过，袋口被光线擦过却留白，再被边缘精修当噪点删掉，最后显示成
+   暗区。实测 960×2万 + 主房上方摆一个圆：袋口 36 格路径明明扫过、掩膜
+   标暗（missL=36）。DDA 每步前进一格不漏，且比采样少跑约三成循环。 */
+function markSeg(ax, ay, bx, by, lit, gx0, gy0, cell, gw, gh) {
+  const x0 = (ax - gx0) / cell, y0 = (ay - gy0) / cell;
+  const x1 = (bx - gx0) / cell, y1 = (by - gy0) / cell;
+  let i = Math.floor(x0), j = Math.floor(y0);
+  const i1 = Math.floor(x1), j1 = Math.floor(y1);
+  const dx = x1 - x0, dy = y1 - y0;
+  const sx = dx > 0 ? 1 : -1, sy = dy > 0 ? 1 : -1;
+  /* 到最近一条格线还剩多少参数距离；某方向位移为 0 时永远不选中它 */
+  let tmx = dx === 0 ? Infinity : ((sx > 0 ? i + 1 : i) - x0) / dx;
+  let tmy = dy === 0 ? Infinity : ((sy > 0 ? j + 1 : j) - y0) / dy;
+  const tdx = dx === 0 ? Infinity : Math.abs(1 / dx);
+  const tdy = dy === 0 ? Infinity : Math.abs(1 / dy);
+  for (let guard = Math.abs(i1 - i) + Math.abs(j1 - j) + 4; guard > 0; guard--) {
+    if (i >= 0 && i < gw && j >= 0 && j < gh) lit[j * gw + i] = 1;
+    if (i === i1 && j === j1) break;
+    if (tmx < tmy) { tmy -= tmx; tmx = tdx; i += sx; }
+    else if (tmy < tmx) { tmx -= tmy; tmy = tdy; j += sy; }
+    else {
+      /* 正好穿过格角：两侧相邻格也真的被扫到了，都得标，不能只走一条 */
+      if (i + sx >= 0 && i + sx < gw && j >= 0 && j < gh) lit[j * gw + i + sx] = 1;
+      if (j + sy >= 0 && j + sy < gh && i >= 0 && i < gw) lit[(j + sy) * gw + i] = 1;
+      tmx = tdx; tmy = tdy; i += sx; j += sy;
+    }
+  }
+}
+
+let liveLit = null;          /* 跟随播放进度的 lit 网格 —— 掩膜唯一数据源 */
+let liveLitT = -1;           /* liveLit 已累计到的弧长位置 */
+let liveLitGw = 0, liveLitGh = 0;
+let liveLitLastPaint = 0;
+let liveLitSig = '';          /* 上一次出图时的状态签名：进度 + 三个标志位，没变就不重建 */
+let liveLitFin = false;      /* 终态两轮精修做过了吗（只做一次） */
+
+function liveLitReset() {
+  liveLit = null; liveLitT = -1; liveLitGw = 0; liveLitGh = 0;
+  liveLitRi = 0; liveLitVi = 0; liveLitBusy = false;
+  liveLitSparse = false; liveLitFine = false; liveLitFin = false; liveLitSig = '';
+  liveFineSkip = 1;
+}
+
+/* 弧长 s 落在哪两个顶点之间：cum 是每 COARSE 个顶点的粗表，
+   先二分定位粗档，再在 ≤COARSE 个顶点里补算。 */
+function vertexAt(p, s) {
+  const n = p.n, V = p.V, C = p.cum;
+  if (n < 2 || s <= 0) return 0;
+  if (s >= p.total) return n - 1;
+  const KC = C.length;
+  let lo = 0, hi = KC - 1;
+  while (hi - lo > 1) { const m = (lo + hi) >> 1; if (C[m] <= s) lo = m; else hi = m; }
+  let acc = C[lo], i = lo * COARSE;
+  if (i >= n - 1) return n - 1;
+  while (i < n - 1) {
+    const d = Math.hypot(V[(i + 1) * 2] - V[i * 2], V[(i + 1) * 2 + 1] - V[i * 2 + 1]);
+    if (acc + d >= s) return i;
+    acc += d; i++;
+  }
+  return n - 1;
+}
+
+/* 把 [tFrom, tTo] 区间内新走过的路段标进 liveLit（幂等，重复标无害）。
+   两级策略：
+   · 常规（fine=false）：带**采样预算**。一次最多 LIVE_BUDGET 个采样点
+     （几毫秒），超了记断点 (liveLitRi, liveLitVi) 下次接着标。调速拉满时
+     一帧的跨度就是整条路径，全量重标 960 道 × 2 万段 ≈ 15 亿次采样
+     = 26 秒（实测：主线程一帧卡 26s，页面点什么都没反应，包括切场景
+     —— 用户报的「调速卡死」「切场景卡死」是同一个根因）。预算制下每帧
+     只干几毫秒，UI 全程可响应。
+   · 抽稀：一帧标不完就按段抽稀（每 skip 段标一段，段内不漏格）。
+     极速模式下用户看的是「光扫过去」的总体形状，不是掠射细节；
+     细节在播放停下来之后由 fine 补精补齐（liveLitSparse 标记）。
+   · fine=true：终态补精专用，每帧 LIVE_FINE_BUDGET（70ms 级）。
+     帧间隔变长但页面照样能点能切场景 —— 不是卡死。 */
+const LIVE_BUDGET = 5e5;
+const LIVE_FINE_BUDGET = 2e7;
+let liveLitRi = 0, liveLitVi = 0;   /* 断点：第几条 path、第几个顶点 */
+let liveLitBusy = false;            /* 还有没标完的段 */
+let liveLitSparse = false;          /* 这次的灯是抽稀标的吗（终态要补精） */
+let liveLitFine = false;            /* 正在终态补精 */
+/* 补精轮次的抽稀系数，粗 → 细：64 → 8 → 1。
+   全量细标 960×2万 实测要 40 秒（127 亿次格标记），一条道走到黑的话
+   前 40 秒掩膜一直是「没补到的格子算暗」，而拖尾早就画完了 —— 用户
+   看到的就是「光明明进去了，暗区还盖着」。光线极度过采样，skip=64
+   那一遍 0.6 秒就能覆盖九成以上格子，skip=8 五秒到 99%+，最后一档
+   只是把剩下的细缝磨平，暗区在头几秒就已经接近终值。 */
+let liveFineSkip = 1;
+
+function liveLitStep(tFrom, tTo, fine) {
+  if (!paths || !paths.length) { liveLitBusy = false; return; }
+  const mk = maskGridParams();
+  if (!liveLit || liveLitGw !== mk.gw || liveLitGh !== mk.gh) {
+    liveLit = new Uint8Array(mk.gw * mk.gh);
+    liveLitGw = mk.gw; liveLitGh = mk.gh;
+  }
+  const cell = mk.cell, gx0 = mk.gx0, gy0 = mk.gy0, gw = mk.gw, gh = mk.gh;
+  const budget = fine ? LIVE_FINE_BUDGET : LIVE_BUDGET;
+  const share = budget / paths.length;      /* 每条 path 分到的采样额度 */
+  let left = budget;
+  for (let ri = liveLitRi; ri < paths.length; ri++) {
+    const p = paths[ri];
+    if (!p || p.n < 2 || !(p.total > tFrom)) continue;
+    const iTo = vertexAt(p, Math.min(tTo, p.total));
+    const iFrom = (ri === liveLitRi) ? liveLitVi
+      : Math.max(0, vertexAt(p, Math.min(tFrom, p.total)) - 1); /* 回退一段保连续 */
+    if (iFrom >= iTo) continue;
+    const segs = iTo - iFrom;
+    /* 抽稀系数：这段路按 80 步/段估，超份额就每 skip 段标一段。
+       **补精通道（fine=true）不抽稀**：它存在的意义就是把抽稀漏掉的
+       格子补全，再抽稀就永远补不齐 —— 实测 skip=77 时 19.2M 段里有
+       3976 个格子（几乎全是只被一两条掠射光线够到的袋内格）被漏掉，
+       掩膜把它们显示成暗区，而路径明明扫过了（参数骗人）。
+       补精只是每帧干得少点（LIVE_FINE_BUDGET），分帧慢慢标完。 */
+    const skip = fine ? Math.max(1, liveFineSkip) : Math.max(1, Math.ceil((segs * 80) / share));
+    if (!fine && skip > 1) liveLitSparse = true;
+    const V = p.V;
+    for (let i = iFrom + 1; i <= iTo; i += skip) {
+      const ax = V[(i - 1) * 2], ay = V[(i - 1) * 2 + 1], bx = V[i * 2], by = V[i * 2 + 1];
+      /* 预算按这段要走的格子数扣：DDA 每步走一格，切比雪夫格距就是上限 */
+      const steps = Math.abs(Math.floor((bx - gx0) / cell) - Math.floor((ax - gx0) / cell))
+        + Math.abs(Math.floor((by - gy0) / cell) - Math.floor((ay - gy0) / cell)) + 2;
+      left -= steps;
+      if (left < 0) { liveLitRi = ri; liveLitVi = i - 1; liveLitBusy = true; return; }
+      markSeg(ax, ay, bx, by, liveLit, gx0, gy0, cell, gw, gh);
+    }
+  }
+  liveLitRi = 0; liveLitVi = 0; liveLitBusy = false;
+  liveLitT = tTo;
+  /* 没到终态就不算精修过：再往前走，到终点还要重新做一次两轮投票。 */
+  if (tTo < (maxDist || 1) - 1e-9) liveLitFin = false;
+}
+
+/* 暗区显形程度（smoothstep，无突变）—— 取「播放进度」和「已照亮占比」
+   两条曲线的较大者：
+   · 光才出发时两者都≈0 → 暗区完全不可见，不会出现「开机一脸大暗圈」；
+   · 光铺开之后（占比过 25%）立刻全浓度显形，不用干等进度条；
+   · 可积场景（圆屋全程只照亮 4.8%）按占比算永远只有 0.04、掩膜整个
+     看不见，而那片没照到的环带恰恰是该看的 —— 所以进度这条曲线保证
+     走到终态一定显形。
+   两条都是 smoothstep，接起来没有跳变。 */
+function maskReveal(litCount, room) {
+  const sm = x => { x = x < 0 ? 0 : x > 1 ? 1 : x; return x * x * (3 - 2 * x); };
+  const fp = maxDist > 0 ? Math.min(1, Math.max(0, S.T / maxDist)) : 0;
+  const fc = room > 0 ? Math.min(1, Math.max(0, litCount / room)) : 0;
+  return Math.max(sm((fp - 0.02) / 0.23), sm((fc - 0.02) / 0.23));
+}
+
+function refreshMask() {
+  invalidateMask();
+  if (!S.mask) return;
+  const mk = maskGridParams();
+  if (!liveLit || liveLitGw !== mk.gw || liveLitGh !== mk.gh) {
+    liveLit = new Uint8Array(mk.gw * mk.gh);
+    liveLitGw = mk.gw; liveLitGh = mk.gh;
+    liveLitT = 0; liveLitRi = 0; liveLitVi = 0; liveLitBusy = false;
+  }
+  /* 只画「当前已标的灯」，追赶（含回退清零）全部交给 maskLiveTick
+     分帧带预算做。这里绝不能同步全量标：播放中打开掩膜时 T 可能
+     已在 90%，全量重标 960×2万 要 26 秒 —— 足够让页面看着像死机。 */
+  finishMaskFromGrid(liveLit, 0);
+  updateHud();
+}
+
+/* 播放循环钩子：灯跟随播放进度增量生长。
+   每帧只推进一个采样预算片（几毫秒），调速拉满、拖进度条、倒拖都
+   不会把主线程埋住；重画按 150ms 节拍走，与追赶解耦（见下方注释）。
+   抽稀标过的灯（极速/大跳跃），在播放停下来后分帧补精一次。 */
+function maskLiveTick(now) {
+  if (!S.mask || !S.ready || !paths.length) return;
+  const mk = maskGridParams();
+  if (!liveLit || liveLitGw !== mk.gw || liveLitGh !== mk.gh) {
+    liveLit = new Uint8Array(mk.gw * mk.gh);
+    liveLitGw = mk.gw; liveLitGh = mk.gh;
+    liveLitT = 0; liveLitRi = 0; liveLitVi = 0; liveLitBusy = false;
+    liveLitSparse = false; liveLitFine = false; liveLitFin = false; liveLitSig = '';
+  }
+  const target = S.T;
+  /* 回退（倒拖、重置）：清零重建，绝不让灯停在「未来」。 */
+  if (target < liveLitT - 1e-9) {
+    liveLit.fill(0); liveLitT = 0; liveLitRi = 0; liveLitVi = 0; liveLitBusy = false;
+    liveLitSparse = false; liveLitFine = false; liveLitFin = false; liveLitSig = '';
+    liveFineSkip = 1;
+  }
+  /* 前进：一帧一个预算片。liveLitBusy 说明上一帧没标完，继续。 */
+  if (liveLitBusy || liveLitT < target - 1e-9) {
+    liveLitStep(liveLitT, target, liveLitFine);
+  }
+  /* 重画与追赶**解耦**：灯长多少就画多少（节流 150ms）。
+     以前把重画放在「追平之后」的分支里，结果拉满参数 + 房内障碍物时
+     路径会被障碍困住反复弹（实测 maxDist 从 35 万暴涨到 1639 万），
+     一帧根本追不完，掩膜就一直停在初始全暗态 —— 用户看到的是
+     「一开门整个房间连小形状里面全是暗区」，而光其实已经在铺开。
+     终态精修 / 抽稀补精仍然只在追平之后做。 */
+  if (now - liveLitLastPaint < 150) return;
+  liveLitLastPaint = now;
+  /* 出图判据只看「灯的进度 / 状态变没变」，**不能挂 liveLitFin**：
+     暂停在半程时 fin 永远是 false，那样一样每 150ms 白重建一次整张 ImageData。
+     同时注意：上面那套抽稀补精 / 粗到细的状态机必须照走，不能挪到早退后面，
+     否则补精会卡在 skip=64 那一档（N2）。 */
+  let mustPaint = false;
+  if (!liveLitBusy && liveLitT >= target - 1e-9) {
+    const atEnd = target >= (maxDist || 1) - 1e-9;
+    /* 判据里**不能**带 !liveLitFin：极速播放时先命中「已到终点」把 fin 置 true，
+       再一暂停，抽稀那遍就再也补不了了 —— sparse 永远 true，
+       掩膜停在抽稀版（实测 pr-matrix 直接 settle 超时）。 */
+    if (liveLitSparse && !liveLitFine && !S.playing) {
+      /* 极速/大跳跃时灯是抽稀标的。只要停下（暂停、拖进度条拖到一半
+         停住、回到终点），就分帧补一次全量细标：每帧 70ms 级，页面
+         照样能点能切场景 —— 不是卡死，只是这几秒帧率低。
+         **这里绝不清空 liveLit 重标。** 抽稀那遍已经把绝大多数格子标亮了
+         （光线极度过采样），填 0 等于把掩膜打回「一片全暗」再慢慢长回来：
+         拉满 960×2万 补精实测要 40 秒，而这 40 秒里拖尾早已把所有路径
+         画完 —— 用户看到的就是「光明明进去了，暗区还整块盖着」，而且
+         每放一次障碍就重演一次。从头重走只增不减，任何一帧都是
+         「已确认的灯」的下界，暗区只会单调收缩，不会反扑。 */
+      liveLitRi = 0; liveLitVi = 0; liveLitT = 0;
+      liveLitBusy = false; liveLitSparse = false; liveLitFine = true;
+      liveLitFin = false;      /* 补精要重走一遍，fin 必须重新等它落定 */
+      liveFineSkip = 64;
+    } else if (liveLitFine && !liveLitBusy && liveLitT >= target - 1e-9 && liveFineSkip > 1) {
+      /* 粗轮扫完，降一档从头再走：64 → 8 → 1。全部只增不减，
+         所以每降一档只是把之前没采到的细缝补上，暗区继续单调收缩。 */
+      liveFineSkip = liveFineSkip >= 64 ? 8 : 1;
+      liveLitRi = 0; liveLitVi = 0; liveLitT = 0; liveLitBusy = true;
+    } else if (!liveLitFin && (atEnd || liveLitFine)) {
+      /* 终态不再做「删孤立亮格」的边缘精修：超覆盖遍历之后不再有采样噪点，
+         而这一刀会在稀疏光轨上把真亮格删掉（暗区事后变大 = 又骗一次人）。
+         掩膜严格等于「路径扫过的格子」，一格不多一格不少。 */
+      mustPaint = true;
+      liveLitFin = true; liveLitFine = false;
+    } else {
+      mustPaint = true;
+    }
+  } else {
+    mustPaint = true;
+  }
+  /* Ri/Vi 也要算进签名：补精（fine）是把 liveLitT 从 0 重新走一遍，
+     只在「走完」时才变；不带 Ri/Vi 的话，中间那一整段（可达 40 秒）
+     一格都不重画，用户看到的是「暗区整块盖着不动」。 */
+  const sig = liveLitT + '|' + liveLitRi + '|' + liveLitVi + '|'
+    + (liveLitFin ? 1 : 0) + '|' + (liveLitFine ? 1 : 0) + '|' + (liveLitSparse ? 1 : 0);
+  if (!mustPaint || sig === liveLitSig) return;
+  liveLitSig = sig;
+  finishMaskFromGrid(liveLit, 0);
+  markDirty();
+}
+
+/* ═══════════════════════════ 场景栏 ═══════════════════════════ */
+const ICONS = {
+  penrose: '<path d="M3 20C7 8 25 8 29 20"/><path d="M3 12C7 24 25 24 29 12"/><circle cx="3.4" cy="16" r="2.5"/><circle cx="28.6" cy="16" r="2.5"/>',
+  circle: '<circle cx="16" cy="16" r="11"/>',
+  ellipse: '<ellipse cx="16" cy="16" rx="13" ry="8"/>',
+  rect: '<rect x="5" y="9" width="22" height="14" rx="1"/>',
+  tri: '<path d="M16 5 L28 26 L4 26 Z"/>',
+  pentagon: '<path d="M16 4.5 L28 13.6 L23.4 27 L8.6 27 L4 13.6 Z"/>',
+  star: '<path d="M16 4 L19.3 12.4 L28.4 12.8 L21.4 18.4 L23.8 27.2 L16 22.2 L8.2 27.2 L10.6 18.4 L3.6 12.8 L12.7 12.4 Z"/>',
+  stadium: '<path d="M9 9 H23 A7 7 0 0 1 23 23 H9 A7 7 0 0 1 9 9 Z"/>',
+  sinai: '<rect x="4" y="8" width="24" height="16" rx="1"/><circle cx="16" cy="16" r="5"/>',
+  mushroom: '<path d="M3 15 A13 13 0 0 1 29 15 L19 15 L19 27 L13 27 L13 15 Z"/>',
+};
+
+function defaultPoly() {
+  return [[-250, -170], [110, -235], [305, -55], [225, 205], [-45, 245], [-295, 115], [-330, -35]];
+}
+
+/* 标题、副标题、面板说明。setScene 与切语言共用这一份 —— 改文案只改
+   I18N 字典，两处一起生效，不会出现「切了场景忘了切语言」。 */
+function applySceneText() {
+  const id = S.scene;
+  if (id === 'custom') {
+    $('tName').textContent = t('sc.customName');
+    $('tDesc').textContent = t('sc.customDesc');
+    $('pTag').textContent = 'CUSTOM';
+    $('pNote').textContent = t('sc.customNote');
+    $('fociNote').textContent = t('foci.off');
+    return;
+  }
+  const sc = sceneById(id);
+  if (!sc) return;
+  $('tName').textContent = id === 'penrose' ? t('sc.penroseRoom')
+    : (LANG === 'en' ? sc.en.name : sc.name);
+  $('tDesc').textContent = LANG === 'en' ? sc.en.desc : sc.desc;
+  $('pTag').textContent = sc.tag;
+  $('pNote').textContent = LANG === 'en' ? sc.en.note : sc.note;
+  $('fociNote').textContent = sc.foci ? t('foci.on') : t('foci.off');
+}
+
+/* 静态标记：[data-i18n] 填文字，[data-i18n-h] 填 HTML（带 <br>、<b> 的说明
+   行），[data-i18n-t] 填 title。
+   由各自刷新函数掌管的元素（拉过滑杆就会重写的那些）在这里跳过，
+   否则切完语言它们会先被覆盖成静态值、下一帧才被刷回，中间闪一下。 */
+const I18N_SKIP = new Set([
+  'v-rays', 'v-obs', 'v-thread-cap', 'v-tail', 'v-run', 'v-time',
+  'phStat', 'phVerdict', 'btn-play', 'cb-edit', 'fociNote',
+]);
+function applyStatic() {
+  for (const el of document.querySelectorAll('[data-i18n]')) {
+    if (I18N_SKIP.has(el.id)) continue;
+    el.textContent = t(el.dataset.i18n);
+  }
+  for (const el of document.querySelectorAll('[data-i18n-h]')) {
+    el.innerHTML = t(el.dataset.i18nH);
+  }
+  for (const el of document.querySelectorAll('[data-i18n-t]')) {
+    el.title = t(el.dataset.i18nT);
+  }
+}
+
+function initLang() {
+  document.documentElement.lang = LANG === 'en' ? 'en' : 'zh-CN';
+  for (const b of document.querySelectorAll('#langSw button')) {
+    b.classList.toggle('on', b.dataset.l === LANG);
+  }
+  applyStatic();
+  if ($('hud')) $('hud').title = t('hud.tip');
+  if ($('v-tail') && $('v-tail').parentNode) $('v-tail').parentNode.title = t('tail.tip');
+}
+
+/* 切语言只换文字。
+   几何、追踪结果、播放进度、曝光场一概不动 —— 追踪结果只取决于
+   几何 / 光源 / 道数 / 反射上限，跟界面语言毫无关系；重追一次纯属白烧
+   CPU，还会把用户拉满的参数和正在看的画面一起冲掉。 */
+function applyLang(l) {
+  const next = (l === 'en') ? 'en' : 'zh';
+  if (next === LANG) return;
+  LANG = next;
+  try { localStorage.setItem('mr-lang', LANG); } catch (e) {}
+  initLang();
+
+  buildSceneRail();     /* 十张场景卡上的名字 */
+  applySceneText();     /* 标题 / 副标题 / 面板说明 */
+  markRail();
+
+  /* 这些面板平时是追踪或播放顺带刷的，切语言得自己补一遍 */
+  syncPlayBtn();
+  updateThreadUI();
+  updateBounceNote();
+  updateSpeedUI();
+  bumpObs();
+  if ($('v-rays')) $('v-rays').textContent = S.rays + t('u.ray');
+  /* 追踪还没出结果时 updateSpeedUI 不会碰这两格，得自己补上占位文案 */
+  if (!(maxDist > 0)) {
+    if ($('v-run')) $('v-run').textContent = t('spd.run0');
+    if ($('v-time')) $('v-time').textContent = t('spd.time0');
+  }
+  if ($('cb-edit')) $('cb-edit').textContent = S.edit ? t('cbar.editing') : t('cbar.edit');
+  if ($('v-tail')) tailLabel();
+  if ($('v-thread-cap')) $('v-thread-cap').textContent = t('u.threadN', { n: $('r-thread').max });
+  /* 判读框有内容签名做去重，这里直接重刷是安全的 */
+  if ($('phVerdict')) $('phVerdict').dataset.sig = '';
+  paintVerdict();
+
+  /* 画布上没有一个字（相图画布只有点，房间/拖尾全是像素），所以切语言
+     不需要重绘：播放中下一帧自然刷新，暂停中画面本来就该静止。
+     这里刻意不碰 repaintTrailSoon —— 拖尾是像素，跟界面语言无关，
+     重建一次纯属白烧 CPU，还会把正在淡出的画面重新铺一遍。 */
+}
+
+function buildSceneRail() {
+  const box = $('sceneList');
+  box.innerHTML = '';
+  for (const sc of SCENES) {
+    const b = document.createElement('button');
+    b.className = 'sc';
+    b.dataset.id = sc.id;
+    b.innerHTML = '<svg viewBox="0 0 32 32" fill="none" stroke="currentColor" stroke-width="1.4"'
+      + ' stroke-linejoin="round" stroke-linecap="round">' + (ICONS[sc.id] || '') + '</svg>'
+      + '<span>' + (LANG === 'en' ? sc.en.name : sc.name) + '</span>';
+    b.addEventListener('click', () => setScene(sc.id));
+    box.appendChild(b);
+  }
+  /* 只绑一次：buildSceneRail 在切语言时会再跑一遍，重复 addEventListener
+     会让「自定义」一次点击触发两遍 setScene。 */
+  if (!$('scCustom').dataset.bound) {
+    $('scCustom').dataset.bound = '1';
+    $('scCustom').addEventListener('click', () => setScene('custom'));
+  }
+}
+
+function markRail() {
+  for (const b of $('sceneList').children) b.classList.toggle('on', b.dataset.id === S.scene);
+  $('scCustom').classList.toggle('on', S.scene === 'custom');
+  $('cbar').classList.toggle('show', S.scene === 'custom');
+}
+
+function setScene(id) {
+  S.scene = id;
+  S.obsType = null;
+  S.hi = -1;
+  S.selObs = -1;
+  /* 换房间就退出释义模式：新场景有自己的判读，别让人以为看到的还是旧的那一类。 */
+  phInfoSel = null;
+  /* 换房间一律回到「未开始」：新几何还没看过，先让用户自己按下开始。 */
+  S.started = false;
+  S.playing = false;
+  S.ending = false;
+  /* 时间轴也必须当场归零。只清播放状态不清 S.T 的话，上一个房间跑到头
+     （S.T = 旧 maxDist）之后换房间，追踪还在后台跑的那一瞬点「开始」，
+     新房间第一帧就满足 S.T >= maxDist → 直接进终态淡出，
+     用户看到的是「刚点开始就结束了」。 */
+  S.T = 0; S.prevT = 0;
+  S.endFade = 0; S.opLeft = 1; endFadeAcc = 0;
+  [...$('obsPick').children].forEach(b => b.classList.remove('on'));
+
+  if (id === 'custom') {
+    if (!S.customPts.length) S.customPts = defaultPoly();
+    S.obs = [];
+    S.rays = S.raysUser || 60;
+    applySceneText();
+  } else {
+    const sc = sceneById(id);
+    S.obs = sc.obs0 ? sc.obs0.map(o => ({ ...o })) : [];
+    S.rays = S.raysUser || sc.rays;
+    applySceneText();
+  }
+
+  $('r-rays').value = S.rays;
+  $('v-rays').textContent = S.rays + t('u.ray');
+
+  rebuild();
+  resize();
+  resetTrail(true);
+  /* 初始光源固定几何中心 (0,0)：彭罗斯房间的演示设定就是「光源居中、
+     蘑菇四角照不到」，这个设定必须在任何窗口/界面下都完美还原。
+     (0,0) 本就在房内时直接放 —— 别让 nearestInside 的网格步长把它偏成
+     (-5.33,4.67)：实测偏 4.67 就足以让拉满参数（960×2万）下的长命掠射
+     轨迹溜进下半边两袋，严格放 (0,0) 时拉满参数四袋也全暗。
+     (0,0) 不在房内的场景（如自定义多边形）才回退最近房内点。 */
+  if (pointInRoom(0, 0)) { S.src.x = 0; S.src.y = 0; }
+  else { const p = nearestInside(0, 0); S.src.x = p[0]; S.src.y = p[1]; }
+  markRail();
+  bumpObs();
+  retrace(S.bounces);
+  refreshMask();
+}
+
+/* ═══════════════════════════ 障碍物 ═══════════════════════════ */
+function bumpObs() {
+  $('v-obs').textContent = S.obs.length + t('u.obs');
+}
+/* 拒绝放置时给一句反馈——不然「点了没反应」跟卡死长得一样。 */
+let obsFlashT = 0;
+function flashObs(msg) {
+  $('v-obs').textContent = msg;
+  clearTimeout(obsFlashT);
+  obsFlashT = setTimeout(bumpObs, 1400);
+}
+/* 放不下去的一种情况：盖住光源 —— 光开局就撞在障碍里，整幅画面只剩
+   起点一个点，像死了。直接拒绝并给一句反馈，不然「点了没反应」
+   跟卡死长得一样。
+   以前还拒绝「压到别的块」：两块重叠的区域在「所有边混一起算偶奇」
+   的旧口径下会翻成房内，暗区口径和拖拽合法性全乱。现在墙、障碍分开
+   判定（外框环内 且 不在任何障碍环内），重叠区同时在两个障碍环内 →
+   正确判外，所以不再需要拒绝 —— 放置、拖动、滚轮缩放三条路从此一致
+   （拖动本来就允许两块身体重叠，只查圆心在不在房里）。 */
+function obsBlocked(x, y, r) {
+  if (Math.hypot(x - S.src.x, y - S.src.y) < r + 6) return t('obs.blocked');
+  return '';
+}
+
+function placeObs(x, y) {
+  /* 墙外不放。以前会瞬到最近的墙内点，结果点画布空白也会冒出一个障碍物。 */
+  if (!pointInRoom(x, y)) return;
+  const pt = [x, y];
+  const span = Math.min(BBOX.x1 - BBOX.x0, BBOX.y1 - BBOX.y0);
+  const r = Math.min(130, Math.max(46, span * 0.13));
+  const bad = obsBlocked(pt[0], pt[1], r);
+  if (bad) { flashObs(bad); return; }
+  S.obs.push({ t: S.obsType, x: pt[0], y: pt[1], r });
+  S.obsType = null;
+  S.selObs = S.obs.length - 1;   /* 刚放好的就是选中的：马上按 Delete 能撤掉 */
+  [...$('obsPick').children].forEach(b => b.classList.remove('on'));
+  rebuild();
+  bumpObs();
+  retrace(S.bounces);
+  refreshMask();
+}
+
+function removeObs(i) {
+  if (i < 0 || i >= S.obs.length) return;
+  S.obs.splice(i, 1);
+  S.selObs = -1;
+  rebuild();
+  bumpObs();
+  retrace(S.bounces);
+  refreshMask();
+}
+
+/* ═══════════════════════════ 自定义顶点 ═══════════════════════════ */
+function paintHandles() {
+  if (S.scene !== 'custom' || !S.edit) return;
+  const pts = S.customPts;
+  if (!pts.length) return;
+  ctx.save();
+  for (let i = 0; i < pts.length; i++) {
+    const a = pts[i], b = pts[(i + 1) % pts.length];
+    const mx = (a[0] + b[0]) / 2, my = (a[1] + b[1]) / 2;
+    ctx.beginPath();
+    ctx.arc(sx(mx), sy(my), 3.7 * DPR, 0, TAU);
+    ctx.fillStyle = 'rgba(84,224,206,.2)';
+    ctx.fill();
+    ctx.strokeStyle = 'rgba(84,224,206,.8)';
+    ctx.lineWidth = 1.1 * DPR;
+    ctx.stroke();
+  }
+  for (let i = 0; i < pts.length; i++) {
+    const on = i === S.hi;
+    const px = sx(pts[i][0]), py = sy(pts[i][1]);
+    if (on) {
+      ctx.beginPath(); ctx.arc(px, py, 11 * DPR, 0, TAU);
+      ctx.strokeStyle = 'rgba(255,201,138,.32)';
+      ctx.lineWidth = 1.1 * DPR; ctx.stroke();
+    }
+    ctx.beginPath(); ctx.arc(px, py, (on ? 6 : 4.6) * DPR, 0, TAU);
+    ctx.fillStyle = on ? 'rgba(255,201,138,.95)' : 'rgba(255,220,180,.72)';
+    ctx.fill();
+    ctx.strokeStyle = 'rgba(10,14,20,.85)';
+    ctx.lineWidth = 1 * DPR;
+    ctx.stroke();
+  }
+  ctx.restore();
+}
+
+/* ═══════════════════════════ 指针 ═══════════════════════════ */
+function mousePt(e) {
+  const r = canvas.getBoundingClientRect();
+  const k = W / Math.max(1, r.width);
+  return [(e.clientX - r.left) * k, (e.clientY - r.top) * k];
+}
+function nearW(x, y, p, tolCss) {
+  return Math.hypot(sx(p[0]) - sx(x), sy(p[1]) - sy(y)) <= tolCss * DPR;
+}
+function obsAt(x, y) {
+  for (let i = S.obs.length - 1; i >= 0; i--) {
+    const o = S.obs[i];
+    if (Math.hypot(x - o.x, y - o.y) <= o.r * 1.35) return i;
+  }
+  return -1;
+}
+
+let drag = null, hoverObs = -1, lastQuick = 0, fullTimer = 0;
+
+function retraceQuick() {
+  const now = performance.now();
+  if (now - lastQuick < 70) return;
+  lastQuick = now;
+  /* 拖拽时的预览只跑 140 次：面板设的是 2 万，此时 S.kbEff 是 140。
+     不标出来的话，停手前那 200ms 里 HUD 会写着「反射 0 / 140」，
+     跟面板上的 2 万对不上 —— 那是预览，不是降配。 */
+  quickPreview = true;
+  retrace(Math.min(140, S.bounces), () => { quickPreview = false; updateBounceNote(); });
+}
+function scheduleFull() {
+  clearTimeout(fullTimer);
+  fullTimer = setTimeout(() => { retrace(S.bounces); refreshMask(); }, 200);
+}
+
+/* 点房间外面不该动光源。
+   以前这里会把任意点瞬到最近的墙内位置，于是点相图旁边、点画布空白，
+   光源都“啪”地跳到墙上——看着像自己跑了。
+   pointInRoom 用偶奇规则，障碍物内部也算外，所以光源不会被点进实心块里。 */
+function setSrc(x, y) {
+  if (!pointInRoom(x, y)) return false;
+  S.src.x = x; S.src.y = y;
+  invalidateMask();
+  retraceQuick();
+  return true;
+}
+
+canvas.addEventListener('pointerdown', e => {
+  if (e.button !== 0) return;
+  const mp = mousePt(e);
+  const x = wx(mp[0]), y = wy(mp[1]);
+
+  /* 1. 自定义外框的顶点 / 边中点 */
+  if (S.scene === 'custom' && S.edit) {
+    for (let i = 0; i < S.customPts.length; i++) {
+      if (nearW(x, y, S.customPts[i], 10)) {
+        drag = { kind: 'vert', i };
+        S.hi = i;
+        canvas.setPointerCapture(e.pointerId);
+        return;
+      }
+    }
+    for (let i = 0; i < S.customPts.length; i++) {
+      const a = S.customPts[i], b = S.customPts[(i + 1) % S.customPts.length];
+      const mid = [(a[0] + b[0]) / 2, (a[1] + b[1]) / 2];
+      if (nearW(x, y, mid, 7) && S.customPts.length < 40) {
+        S.customPts.splice(i + 1, 0, mid.slice());
+        S.hi = i + 1;
+        drag = { kind: 'vert', i: i + 1 };
+        rebuild();
+        retraceQuick();
+        canvas.setPointerCapture(e.pointerId);
+        return;
+      }
+    }
+  }
+
+  /* 2. 待放置的障碍物 */
+  if (S.obsType) { placeObs(x, y); return; }
+
+  /* 3. 拖动已有障碍物 */
+  const oi = obsAt(x, y);
+  if (oi >= 0) {
+    S.selObs = oi;
+    drag = { kind: 'obs', i: oi, ox: S.obs[oi].x - x, oy: S.obs[oi].y - y };
+    canvas.setPointerCapture(e.pointerId);
+    canvas.style.cursor = 'grabbing';
+    return;
+  }
+
+  /* 4. 拖光源——只有点在房间内部才起拖。
+     点墙外/障碍物里/画布空白一律不响应，免得“点一下光源自己跑了”。 */
+  S.selObs = -1;
+  if (!pointInRoom(x, y)) return;
+  drag = { kind: 'src' };
+  canvas.setPointerCapture(e.pointerId);
+  setSrc(x, y);
+});
+
+canvas.addEventListener('pointermove', e => {
+  const mp = mousePt(e);
+  const x = wx(mp[0]), y = wy(mp[1]);
+
+  if (!drag) {
+    hoverObs = obsAt(x, y);
+    if (S.obsType) canvas.style.cursor = 'copy';
+    else if (hoverObs >= 0) canvas.style.cursor = 'grab';
+    else if (S.scene === 'custom' && S.edit && S.customPts.some(p => nearW(x, y, p, 10))) canvas.style.cursor = 'move';
+    /* 墙外不能放光源/障碍物，光标直接告诉你。 */
+    else if (!pointInRoom(x, y)) canvas.style.cursor = 'not-allowed';
+    else canvas.style.cursor = 'crosshair';
+    return;
+  }
+
+  if (drag.kind === 'src') {
+    /* 拖出墙外时保持最后一个合法位置，不跟着鼠标钻到墙里。 */
+    setSrc(x, y);
+  } else if (drag.kind === 'obs') {
+    const o = S.obs[drag.i];
+    /* 障碍物中心也只允许在房间内移动；允许圆体本身压到墙上，
+       但不允许整个搬到墙外去，也不能拖去盖住光源。 */
+    const nx = x + drag.ox, ny = y + drag.oy;
+    if (!pointInRoom(nx, ny)) return;
+    if (obsBlocked(nx, ny, o.r)) return;
+    o.x = nx; o.y = ny;
+    rebuild();
+    retraceQuick();
+  } else if (drag.kind === 'vert') {
+    S.customPts[drag.i] = [x, y];
+    rebuild();
+    retraceQuick();
+  }
+});
+
+function endDrag() {
+  if (!drag) return;
+  drag = null;
+  canvas.style.cursor = 'default';
+  scheduleFull();
+}
+canvas.addEventListener('pointerup', endDrag);
+canvas.addEventListener('pointercancel', endDrag);
+
+canvas.addEventListener('wheel', e => {
+  const mp = mousePt(e);
+  const x = wx(mp[0]), y = wy(mp[1]);
+  const oi = obsAt(x, y);
+  if (oi < 0) return;
+  e.preventDefault();
+  const o = S.obs[oi];
+  const nr = Math.max(14, Math.min(420, o.r * (e.deltaY > 0 ? 0.92 : 1.087)));
+  /* 涨到盖住光源就拒绝：那一种几何下演示直接失去意义。 */
+  if (obsBlocked(o.x, o.y, nr)) return;
+  o.r = nr;
+  rebuild();
+  retraceQuick();
+  scheduleFull();
+}, { passive: false });
+
+canvas.addEventListener('dblclick', e => {
+  if (S.scene !== 'custom' || !S.edit || S.customPts.length <= 3) return;
+  const mp = mousePt(e);
+  const x = wx(mp[0]), y = wy(mp[1]);
+  for (let i = 0; i < S.customPts.length; i++) {
+    if (nearW(x, y, S.customPts[i], 11)) {
+      S.customPts.splice(i, 1);
+      S.hi = -1;
+      rebuild();
+      retrace(S.bounces);
+      refreshMask();
+      return;
+    }
+  }
+});
+
+window.addEventListener('keydown', e => {
+  if (e.key === 'Escape') {
+    S.obsType = null;
+    [...$('obsPick').children].forEach(b => b.classList.remove('on'));
+    return;
+  }
+  if (e.key !== 'Delete' && e.key !== 'Backspace') return;
+  if (S.selObs >= 0) { removeObs(S.selObs); return; }
+  if (S.scene === 'custom' && S.hi >= 0 && S.customPts.length > 3) {
+    S.customPts.splice(S.hi, 1);
+    S.hi = -1;
+    rebuild();
+    retrace(S.bounces);
+    refreshMask();
+  }
+});
+
+/* ═══════════════════════════ 主循环 ═══════════════════════════ */
+let lastFrame = 0, frameNo = 0;
+
+/* ═══════════════════════════ 播放控制 ═══════════════════════════
+   三态：未开始 / 播放中 / 暂停。
+   「重置」回到未开始——画面清空、时间轴停在 0，等下一次「开始」；
+   「重播」清空并立刻从 0 跑。两者区别只在于按钮点完之后光动不动。
+   ─────────────────────────────────────────────────────────── */
+function syncPlayBtn() {
+  const b = $('btn-play');
+  if (!b) return;
+  const atEnd = maxDist > 0 && S.T >= maxDist - 1e-9;
+  b.textContent = !S.started ? t('ui.play')
+    : S.playing ? t('ui.pause')
+      : atEnd ? t('ui.again')
+        : t('ui.resume');
+  b.disabled = !S.ready;
+  $('btn-reset').disabled = !S.ready;
+  $('btn-restart').disabled = !S.ready;
+  $('startHint').classList.toggle('hide', S.started);
+}
+
+function beginPlay() {
+  if (!S.ready) return;
+  /* 「再播一遍」是从头放：掩膜灯的分帧状态也要跟着归零，
+     否则上一趟停在补精中途的档位（liveLitFine / liveFineSkip）会残留，
+     新一趟一开就按补精节奏走，灯长得断断续续。 */
+  if (S.T >= maxDist - 1e-9) {
+    S.T = 0; S.prevT = 0;
+    liveLitReset();
+    if (S.mask) refreshMask();
+  }
+  S.started = true;
+  S.playing = true;
+  S.ending = false;
+  S.opLeft = 1; endFadeAcc = 0;
+  syncPlayBtn();
+}
+
+function resetPlay() {
+  S.T = 0; S.prevT = 0;
+  S.ending = false; S.endFade = 0; S.opLeft = 1; endFadeAcc = 0;
+  resetTrail();
+  S.started = false;
+  S.playing = false;
+  /* 时间轴归零，灯也必须当场归零：等下一帧 maskLiveTick 再追平的话，
+     这两帧之间画面挂着的是「未来」的灯（来自还没走到的路段）。 */
+  liveLitReset();
+  if (S.mask) refreshMask();
+  syncPlayBtn();
+}
+
+function restartPlay() {
+  S.T = 0; S.prevT = 0;
+  S.ending = false; S.endFade = 0; S.opLeft = 1; endFadeAcc = 0;
+  resetTrail();
+  liveLitReset();
+  if (S.mask) refreshMask();
+  S.started = true;
+  S.playing = true;
+  syncPlayBtn();
+}
+
+function whenReady() {
+  analyzePhase();
+  drawPhase();
+  updateVerdict();
+  updateHud();
+  updateSpeedUI();
+  syncPlayBtn();
+  markDirty();          /* 追踪是异步回包的，不在任何输入事件里，得自己标脏 */
+}
+
+function loop(now) {
+  requestAnimationFrame(loop);
+  if (!lastFrame) lastFrame = now;
+  let dt = now - lastFrame;
+  lastFrame = now;
+  if (dt > 120) dt = 120;
+  if (dt > 0) S.fps = 1000 / dt;
+  perfWatch(dt);
+  const spf = dt / 16.667;
+
+  if (S.ready && S.playing) {
+    S.prevT = S.T;
+    /* 严格按「真实速度 × 慢动作倍率」推进，不再有「N 秒跑完全程」这种
+       跟速度无关的隐藏节奏。 */
+    S.T += (runKmps() * UNITS_PER_KM * dt) / 1000;
+    if (S.T > maxDist) S.T = maxDist;
+    /* 绘制耗时要量出来。速度拉高时每帧跨度变大、段数暴涨，
+       写死段数上限会把帧时间顶到 60~80ms；按实测砍预算才能一直 60fps。
+       渲染 worker 模式下这一整块（描线 + 密度累积 + 余辉）都在 worker 里。 */
+    if (S.T > S.prevT) {
+      const f = Math.min(1, S.T / (maxDist || 1));
+      const rgb = toneAt(f);
+      const a = alphaBase() * alphaAt(f);
+      const dcy = decayNow();
+      /* 跨帧累积必须用精确式 1-(1-dcy)^spf，不能线性写 dcy*spf：
+         默认档两者差 2%（可忽略），但痕迹拉到最短 + 8fps 时线性给 1.558、
+         精确给 0.828 —— 线性会凭空多抹掉一大截，比 λ 模型早一帧清完。
+         两条渲染路径都已改成「先抹旧墨、再画本帧新墨」，所以 d 再大也只是
+         「历史清空、本帧新墨全亮」，不需要常数钳位。 */
+      R.frame(S.prevT, S.T, rgb, a, dcy > 0 ? 1 - Math.pow(1 - dcy, spf) : 0, f);
+    }
+
+    /* 跑到头就停，不自作主张重播。
+       原来这里会自动清场重来，一分钟里循环三次——想停下来看最后一帧
+       得正好卡在那 1.4 秒里，比看还累。 */
+    if (maxDist > 0 && S.T >= maxDist - 1e-9) {
+      S.T = maxDist;
+      S.playing = false;
+      S.ending = true; S.endFade = 0;
+      /* 淡出必须从「满墨」开始：opLeft 不复位的话，第二趟跑到头时它
+         还是上一趟剩下的 0.445，第一帧就判「已淡到位」直接定格 ——
+         终态看起来一点都不淡。 */
+      S.opLeft = 1; endFadeAcc = 0;
+      /* 终态精修交给 maskLiveTick：灯分帧追到全程末端后，它自己做一次
+         两轮投票。这里绝不能同步全量追 —— 调速拉满时一帧就到终点，
+         960×2万 全标一遍要 26 秒，那一下就把页面钉死。 */
+      liveLitFin = false;
+      syncPlayBtn();
+    }
+  }
+
+  /* 暗区实时灯：跟随播放进度增量生长（内部节流；暂停时拖进度条
+     也会走这里，大跳跃自动清零重建，保证灯与画面严格同进度）。 */
+  maskLiveTick(now);
+
+  /* 光走完全程之后，满屋子的轨迹线本身就是一层糊：
+     每条路径都跑了一整圈，稳态下画布平均被叠了一两层 0.8px 的线。
+     淡一点，露出底下那张「哪里被照过多少次」的曝光图。
+     **但只淡到 45% 就定格**：原来淡到 1.7% 再整块清空，用户看到的是
+     「反射刚跑完，光突然就没了」—— 终态本身是要看的东西，不是垃圾。
+     现在停在能看清终态轨迹的亮度上，底下曝光图照样透得出来。
+     抹除量必须攒够 0.12 再下一次手：画布上大量像素 alpha 只有 20 上下，
+     逐帧抹 1.1% 相当于每帧降 0.2 个 alpha 级，被 8 位量化直接吞掉
+     （实测 1.2 秒只淡了 2%）—— 跟拖尾衰减卡死是同一个坑。 */
+  if (S.ending) {
+    S.endFade += dt;
+    const step = Math.min(0.45, 0.0112 * (dt / 16.7));
+    const prog = maxDist ? Math.min(1, S.T / maxDist) : 1;
+    S.opLeft *= (1 - step);
+    endFadeAcc += step;
+    if (S.opLeft <= 0.45) {
+      if (endFadeAcc > 0.002) { R.fade(endFadeAcc, prog); endFadeAcc = 0; }
+      S.ending = false;             /* 定格，不清空、不擦曝光图 */
+      markDirty();
+    } else if (endFadeAcc >= 0.12) {
+      R.fade(endFadeAcc, prog);
+      endFadeAcc = 0;
+    }
+  }
+
+  /* 拖尾重绘：调亮度/痕迹长度后，按「衰减窗口」分帧重画一遍。
+     分帧是必须的——调速拉满时窗口等于整条路径（1920 万段）。 */
+  if (rp.on) { repaintTick(); markDirty(); }
+
+  const active = (S.ready && S.playing) || S.ending;
+
+  if (++frameNo % 30 === 0 && S.phase && S.ready) {
+    analyzePhase();
+    drawPhase();
+    updateVerdict();
+  }
+
+  /* 画面没变就别重画。
+     原来这里无条件每帧 composite()（7 次全屏合成 ≈ 12ms）+
+     每 4 帧 renderField()，哪怕早就跑完停在那儿了也照画不误。
+     结果就是「都跑完了，我拖个滑杆怎么还一卡一卡的」——
+     卡不在滑杆本身，在每帧白干的那一轮合成。
+     渲染 worker 模式下曝光图由 worker 自己每 4 帧重画，这里不用管。 */
+  if (active) {
+    if (!R.ok && frameNo % (perfTier >= 2 ? 12 : 4) === 0) renderField();
+    composite();
+    dirty = false;
+  } else if (dirty) {
+    if (!R.ok) renderField();
+    composite();
+    dirty = false;
+  }
+
+  if (frameNo % 6 === 0) updateHud();
+}
+
+/* 静止时只有被标脏才重画一帧。任何交互都算脏；
+   鼠标只是划过不算 —— 那不改动画面，不该白烧一轮合重。 */
+let dirty = true;
+function markDirty() { dirty = true; }
+
+/* ═══════════════════ 画质自动降档 ═══════════════════
+   帧率持续上不去就自己减负，别让用户盯着个位数帧率猜原因。
+   档 0 全效果 / 1 关辉光 / 2 曝光图 12 帧一更新 / 3 绘制预算砍半
+   缓过来会自动升回去，HUD 上一直写明档位，不偷偷降级。 */
+let perfTier = 0, perfSlow = 0, perfFast = 0, perfAt = 0;
+function applyTier() {
+  if (R.ok) {
+    R.w.postMessage({ t: 'fieldEvery', n: perfTier >= 2 ? 12 : 4 });
+    R.w.postMessage({ t: 'cap', n: perfTier >= 3 ? 2500 : 20000 });
+  }
+  markDirty();
+}
+function perfWatch(dt) {
+  if (!S.playing) return;
+  if (dt > 34) { perfSlow++; perfFast = 0; }
+  else if (dt < 20) { perfFast++; perfSlow = 0; }
+  else { perfSlow = 0; perfFast = 0; }
+  const now = performance.now();
+  if (perfSlow >= 24 && perfTier < 3 && now - perfAt > 1500) {
+    perfTier++; perfAt = now; perfSlow = 0; applyTier();
+  } else if (perfFast >= 300 && perfTier > 0 && now - perfAt > 5000) {
+    perfTier--; perfAt = now; perfFast = 0; applyTier();
+  }
+}
+
+/* ═══════════════════════════ 绑定 ═══════════════════════════ */
+function bindUI() {
+  const rr = $('r-rays');
+  rr.addEventListener('input', () => {
+    S.rays = +rr.value;
+    S.raysUser = S.rays;      /* 记住手动值：切场景时沿用，不打回默认 */
+    $('v-rays').textContent = S.rays + t('u.ray');
+    invalidateMask();
+    clearTimeout(rr._t);
+    rr._t = setTimeout(() => { retrace(S.bounces); refreshMask(); }, 180);
+  });
+
+  /* ── 计算线程 ──
+     默认自动。手动档把滑杆拉满就是逻辑处理器数，想压到几条就压几条。
+     切换后立刻用新配置重追一次，并在面板上给出实测耗时，
+     用户可以自己比：机器不同，最优线程数也不同。 */
+  const rth = $('r-thread');
+  rth.max = String(tpCap());
+  rth.value = String(tpTarget());
+  $('v-thread-cap').textContent = t('u.threadN', { n: rth.max });
+  $('seg-thread').addEventListener('click', e => {
+    const b = e.target.closest('button');
+    if (!b) return;
+    [...$('seg-thread').children].forEach(x => x.classList.toggle('on', x === b));
+    TP.mode = b.dataset.m;
+    $('thread-manual').style.display = TP.mode === 'manual' ? '' : 'none';
+    if (TP.mode === 'manual') { TP.fixN = +rth.value; }
+    else if (TP.mode === 'auto') { TP.fixN = 0; }
+    tpSync();
+    updateThreadUI();
+    retrace(S.bounces);
+  });
+  rth.addEventListener('input', () => {
+    TP.fixN = +rth.value;
+    tpSync();
+    updateThreadUI();
+    clearTimeout(rth._t);
+    rth._t = setTimeout(() => retrace(S.bounces), 200);
+  });
+
+  $('seg-bounce').addEventListener('click', e => {
+    const b = e.target.closest('button');
+    if (!b) return;
+    [...$('seg-bounce').children].forEach(x => x.classList.toggle('on', x === b));
+    S.bounces = +b.dataset.v;
+    retrace(S.bounces);
+    refreshMask();
+  });
+
+  /* 渲染方式：Worker（描线在后台线程）/ 主线程（全部在页面线程画）。
+     某些显卡驱动上「主线程每帧把 Worker 的画布 drawImage 上来」会走慢路径，
+     表现为每隔几帧冻住半秒。切主线程即可，切换后刷新页面生效。 */
+  const sgr = $('seg-render');
+  if (sgr) {
+    [...sgr.children].forEach(x => x.classList.toggle('on', x.dataset.m === RENDER_MODE));
+    sgr.addEventListener('click', e => {
+      const b = e.target.closest('button');
+      if (!b) return;
+      try { localStorage.setItem('pr.render', b.dataset.m); } catch (err) {}
+      location.reload();
+    });
+  }
+
+  const rs = $('r-speed');
+  S.speed = Math.pow(10, (+rs.value) / 1000);
+  rs.addEventListener('input', () => {
+    S.speed = Math.pow(10, (+rs.value) / 1000);
+    updateSpeedUI();
+  });
+
+  /* 亮度与余辉：改完立刻重绘已走过的路径，否则暂停状态下看不出变化。 */
+  const rb = $('r-bright');
+  S.bright = (+rb.value) / 100;
+  $('v-bright').textContent = S.bright.toFixed(1) + '×';
+  rb.addEventListener('input', () => {
+    S.bright = (+rb.value) / 100;
+    $('v-bright').textContent = S.bright.toFixed(1) + '×';
+    repaintTrailSoon();
+  });
+
+  const rt = $('r-tail');
+  /* 痕迹长度滑杆 0～1000 → 浓度 0.02～0.99，**0.90 落在滑杆正中间**：
+     左边 0.02→0.90（衰减差约 34 倍，短痕迹那半段够用），右边 0.90→0.99。
+     右端停在 0.99 而不是 1.0：decayOf 在 p>0.994 返回 0 = 永不衰减，
+     那时「衰减窗口」等于整条路径，拉满参数下重绘要画 1900 万段。 */
+  const tailOf = v => (v <= 500
+    ? 0.02 + 0.88 * (v / 500)
+    : 0.90 + 0.09 * ((v - 500) / 500));
+  S.tail = tailOf(+rt.value);
+  /* 「痕迹长度」不是米数，是每帧保留多少的衰减浓度。旁边补一个可读时长：
+     直接用画布同式 trailLifeSec（淡到 ~3% 可见门槛的秒数），
+     别在这另推一个公式——否则标签和画面对不上。 */
+  tailLabel();
+  $('v-tail').parentNode.title = t('tail.tip');
+  rt.addEventListener('input', () => {
+    S.tail = tailOf(+rt.value);
+    tailLabel();
+    repaintTrailSoon();
+  });
+
+  $('obsPick').addEventListener('click', e => {
+    const b = e.target.closest('button');
+    if (!b) return;
+    const t = b.dataset.t;
+    if (S.obsType === t) {
+      S.obsType = null;
+      b.classList.remove('on');
+    } else {
+      S.obsType = t;
+      [...$('obsPick').children].forEach(x => x.classList.toggle('on', x === b));
+    }
+  });
+
+  $('tg-phase').addEventListener('click', () => {
+    S.phase = !S.phase;
+    $('tg-phase').classList.toggle('on', S.phase);
+    $('phase').classList.toggle('hide', !S.phase);
+  });
+
+  $('tg-mask').addEventListener('click', () => {
+    S.mask = !S.mask;
+    $('tg-mask').classList.toggle('on', S.mask);
+    refreshMask();
+  });
+
+  $('tg-foci').addEventListener('click', () => {
+    S.foci = !S.foci;
+    $('tg-foci').classList.toggle('on', S.foci);
+  });
+
+  $('btn-play').addEventListener('click', () => {
+    if (!S.ready) return;
+    if (!S.started) { beginPlay(); return; }
+    if (S.playing) { S.playing = false; syncPlayBtn(); return; }
+    /* 已经在终点，再点就不是「继续」而是从头看一遍 */
+    if (maxDist > 0 && S.T >= maxDist - 1e-9) { restartPlay(); return; }
+    S.playing = true;
+    syncPlayBtn();
+  });
+
+  $('btn-reset').addEventListener('click', resetPlay);
+
+  $('btn-restart').addEventListener('click', restartPlay);
+
+  $('startHint').addEventListener('click', beginPlay);
+
+  $('cb-edit').addEventListener('click', () => {
+    S.edit = !S.edit;
+    $('cb-edit').classList.toggle('on', S.edit);
+    $('cb-edit').textContent = S.edit ? t('cbar.editing') : t('cbar.edit');
+  });
+
+  $('cb-reset').addEventListener('click', () => {
+    S.customPts = defaultPoly();
+    S.hi = -1;
+    rebuild();
+    resize();
+    retrace(S.bounces);
+    refreshMask();
+  });
+
+  $('langSw').addEventListener('click', e => {
+    const b = e.target.closest('button');
+    if (!b) return;
+    applyLang(b.dataset.l);
+  });
+}
+
+/* ═══════════════════ 性能自检（点 HUD 触发） ═══════════════════
+   同一台机器、同一个浏览器 exe，换个干净配置就不卡 ——
+   差别只能在浏览器环境里，而我在这一头看不见。
+   所以让页面自己量 3 秒，把数字直接摆给用户看，别再靠猜。 */
+let diagBusy = false;
+function runDiag() {
+  if (diagBusy) return;
+  diagBusy = true;
+  const box = document.createElement('div');
+  box.id = 'diagBox';
+  box.style.cssText = 'position:fixed;left:50%;top:50%;transform:translate(-50%,-50%);z-index:9999;'
+    + 'background:#0d1424f2;color:#dfe8ff;border:1px solid #3a5a8a;border-radius:10px;'
+    + 'padding:14px 18px;font:13px/1.75 ui-monospace,Menlo,Consolas,monospace;'
+    + 'max-width:560px;white-space:pre-wrap;box-shadow:0 12px 40px #0009';
+  box.textContent = t('diag.busy');
+  document.body.appendChild(box);
+
+  const wasPlaying = S.playing;
+  if (S.ready && !S.playing) beginPlay();
+  const oc = composite;
+  let compMs = 0, compN = 0;
+  window.composite = composite = function () {
+    const t = performance.now(); oc.apply(null, arguments); compMs += performance.now() - t; compN++;
+  };
+  const g = [], tg = [];
+  let last = performance.now(), tlast = last, stop = false;
+  const t0 = last;
+  /* 计时器循环和 rAF 循环同时跑，用来区分两种「卡」：
+     两个都慢 = 整个浏览器进程被限速/挂起（效率模式、后台节流、别的程序抢）；
+     只有 rAF 慢 = 主线程根本没被卡，是「提交画面」那一步卡住（GPU 进程/驱动/叠加层）。 */
+  const timerStep = () => {
+    const n = performance.now(); tg.push(n - tlast); tlast = n;
+    if (!stop && n - t0 < 3000) setTimeout(timerStep, 0);
+  };
+  setTimeout(timerStep, 0);
+  const tick = () => {
+    const n = performance.now();
+    g.push(n - last); last = n;
+    if (n - t0 < 3000) { requestAnimationFrame(tick); return; }
+    stop = true;
+    window.composite = composite = oc;
+    if (!wasPlaying && S.playing) { S.playing = false; syncPlayBtn(); }
+    g.sort((a, b) => a - b);
+    const q = p => +g[Math.min(g.length - 1, Math.floor(g.length * p))].toFixed(1);
+    const avg = g.reduce((a, b) => a + b, 0) / Math.max(1, g.length);
+    const perComp = compN ? compMs / compN : 0;
+    const hmMB = performance.memory ? performance.memory.usedJSHeapSize / 1048576 : 0;
+    const tMed = tg.length ? tg.sort((a, b) => a - b)[Math.floor(tg.length / 2)] : -1;
+    const L = [
+      t('diag.title'),
+      t('diag.fps', { n: (1000 / avg).toFixed(0), p50: q(0.5), p90: q(0.9) }),
+      t('diag.visLabel') + document.visibilityState + (document.hidden ? t('diag.visBg') : t('diag.visFg')),
+      t('diag.raf', { raf: q(0.5), timer: (tMed < 0 ? '—' : tMed.toFixed(1)) }),
+      t('diag.canvas', { w: W, h: H, mp: (W * H / 1e6).toFixed(1), dpr: (devicePixelRatio || 1).toFixed(2) }),
+      t('diag.render', {
+        state: R.ok ? t('diag.taken') : t('diag.notTaken'),
+        ms: R.ok ? R.ms.toFixed(1) : '—', stride: (R.stride || 1),
+      }),
+      t('diag.compose', { ms: perComp.toFixed(2) }),
+      t('diag.mem', { mem: hmMB ? Math.round(hmMB) + ' MB' : t('diag.memUnknown'), rays: S.rays, kb: (S.kbEff || 0).toLocaleString('en-US') }),
+      t('diag.tier', { tier: perfTier ? t('diag.tierDown', { n: perfTier }) : t('diag.tierFull') }),
+      '', t('diag.howto'),
+      perComp > 8 ? t('diag.d1') : t('diag.d1ok'),
+      !R.ok ? t('diag.d2') : (R.ms > 12 ? t('diag.d3') : t('diag.d3ok')),
+      tMed >= 0 && tMed > 60 ? t('diag.d4', { n: tMed.toFixed(0) })
+        : (tMed >= 0 && tMed < 25 && (1000 / avg) < 40 ? t('diag.d5') : ''),
+      hmMB > 800 ? t('diag.d6') : '',
+    ].filter(Boolean);
+    box.textContent = L.join('\n');
+    const c = document.createElement('div');
+    c.style.cssText = 'margin-top:10px;color:#8fb8ff;cursor:pointer;text-align:right';
+    c.textContent = t('diag.close');
+    c.onclick = () => { box.remove(); diagBusy = false; };
+    box.appendChild(c);
+  };
+  requestAnimationFrame(tick);
+}
+
+/* ═══════════════════════════ 启动 ═══════════════════════════ */
+async function boot() {
+  buildLUT();
+  /* 渲染端必须在 resize / setScene 之前初始化：
+     两张画布一旦 transfer 给 worker，主线程就不能再改它们的尺寸了，
+     后面所有尺寸变化都得走消息。起不来就掉回主线程原路径。
+     选了「主线程渲染」就干脆不起 worker：画布全留在页面线程，
+     完全不碰跨线程提交，绕开个别驱动上的慢路径。 */
+  if (RENDER_MODE === 'main') { R.state = 4; R.ok = false; }
+  else R.init();
+  bindUI();
+  initLang();
+  buildSceneRail();
+  if ($('hud')) { $('hud').title = t('hud.tip'); $('hud').addEventListener('click', runDiag); }
+  syncPlayBtn();          /* 追踪还没跑完，先把三个按钮置灰 */
+
+  /* 先探 Worker 能不能起，再建场景：这样第一次追踪就能用上多线程，
+     而不是先单线程跑一趟、切参数时才换过去。探不出来也有 1.2s 超时兜底。 */
+  await tpProbe();
+  if (TP.ok) tpSync();
+  updateThreadUI();
+
+  setScene('penrose');
+  /* 第一趟追踪跑完再做校准（校准要拿当前几何开刀）。
+     校准只影响「面板上那句实测快慢」，不影响结果正确性，晚一点没关系。 */
+  setTimeout(() => {
+    if (!TP.ok) return;
+    tpCalibrate();
+  }, 60);
+
+  /* 视图变化只重绘，不重追。追踪结果只取决于几何 + 光源 + 光线数 + 反射
+     上限，跟画布尺寸一点关系都没有 —— 以前这里来一次 ResizeObserver 就
+     retraceQuick + scheduleFull，而切场景时面板文字长短变化会把 stage
+     挤高/挤矮，于是一次切场景白跑三趟追踪，中间那趟还是 140 次的短版：
+     面板写着 2 万、画面里算的是 140，这就是参数骗人；更糟的是重追会把
+     S.T 拨回 0，用户看了一半的动画凭空重启。
+     现在：尺寸没变（纯文字重排）连 resize() 都不调；真变了就 resize() +
+     把已有路径重绘到当前进度（repaintTrailSoon，跟拖亮度滑杆同一条路）。
+     窗口缩放的拖画布 therefore 不再被清空，动画也不会跳回开头。 */
+  let lastStageW = 0, lastStageH = 0;
+  const ro = new ResizeObserver(() => {
+    const st = $('stage');
+    const sw = st.clientWidth, sh = st.clientHeight;
+    if (sw === lastStageW && sh === lastStageH) { markDirty(); return; }
+    lastStageW = sw; lastStageH = sh;
+    resize();
+    markDirty();
+    repaintTrailSoon();
+  });
+  ro.observe($('stage'));
+
+  /* 任何交互都算「画面要重画一次」。
+     鼠标划过不算 —— 那不改动画面，不该白烧一轮全屏合成；
+     但按住拖动要算，否则拖光源/拖顶点时画面不动。 */
+  let ptrDown = false;
+  addEventListener('pointerdown', () => { ptrDown = true; markDirty(); }, true);
+  addEventListener('pointerup', () => { ptrDown = false; markDirty(); }, true);
+  /* 只有按住拖动才重画：鼠标划过画面并不变，不该白烧一轮全屏合成。 */
+  addEventListener('pointermove', () => { if (ptrDown) markDirty(); }, true);
+  for (const t of ['input', 'change', 'click', 'wheel', 'keydown']) addEventListener(t, markDirty, true);
+
+  requestAnimationFrame(loop);
+}
+
+boot();
+</script>
+</body>
+</html>
